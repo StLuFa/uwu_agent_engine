@@ -34,10 +34,11 @@
   阶段 1e    agent-character（人格维度）
   阶段 2     agent-mesh（Agent 语义事件网格）
   阶段 3a    agent-perception（感知域）
+  阶段 3b    agent-memory（统一记忆）
   阶段 W     agent-wiki（多 Agent 协作知识库）
 
 待 实 施 ─────────────────────────────────────────────────────────────────
-  阶段 3b-e  能力域剩余（memory / reasoning / execution / tools）
+  阶段 3c-e  能力域剩余（reasoning / execution / tools）
   阶段 4    ██████████████░░░░░░░░░░  Session 主循环（1-2 周）
   阶段 5    ██████████████░░░░░░░░░░  Task + Collaboration（1-2 周）
   阶段 6    ██████████░░░░░░░░░░░░░░  LearnNode（1 周）
@@ -465,34 +466,52 @@ cargo check -p agent-wiki  # 0 errors, 0 warnings
 
 ---
 
-### 5.2 agent-memory（2-3 天）
+### 5.2 agent-memory ✅（已完成）
+
+> **实施日期：** 2026-06-29 |
+> **测试结果：** 10 passed, 0 failed, 0 warnings |
+> **关联：** 移除了未使用的 agent-types-ext/agent-persona/agent-mesh/agent-crdt/uwu_database 依赖
 
 ```
 crates/agent-memory/
 ├── Cargo.toml
+├── README.md               // 完整使用文档 + 巩固策略表
 └── src/
-    ├── lib.rs              // re-exports
-    ├── unified.rs          // UnifiedMemory（向量 + 元数据）
-    ├── retrieve.rs         // retrieve() / retrieve_typed()
-    ├── consolidate.rs      // consolidate() — 将 Episode 持久化
-    ├── types.rs            // MemoryType 枚举 + Memory + MemoryScore
-    └── embedding.rs        // Embedding 生成（调用外部 embedding 服务）
+    ├── lib.rs              // MemoryFacade + RetrievedMemories + tests ✅
+    ├── unified.rs          // UnifiedMemory（HashMap 实现 + 余弦检索）+ tests ✅
+    ├── retrieve.rs         // RetrievalIntent ✅
+    ├── consolidate.rs      // Episode + consolidate_episode() ✅
+    ├── types.rs            // MemoryType + Memory + MemoryScore ✅
+    └── embedding.rs        // Embedding + cosine_similarity + mock() + tests ✅
 ```
 
 | 任务 | 优先级 | 说明 |
 |---|---|---|
-| ☐ `VectorStore` trait 定义 | P0 | `search(query, opts) -> Vec<Memory>`, `upsert(id, embedding, metadata)` |
-| ☐ `UnifiedMemory` 结构体 | P0 | `vector_db: Arc<dyn VectorStore>, metadata_db: PgPool` |
-| ☐ `MemoryType` 枚举 | P0 | `Episodic, Semantic, Procedural, Working` |
-| ☐ `Memory` 结构体 | P0 | `id, memory_type, content, embedding, score, state_snapshot` |
-| ☐ `retrieve(intent)` — 默认检索 | P0 | 基于意图自动选择检索策略，覆盖 80% 场景 |
-| ☐ `retrieve_typed(intent, types)` — 按类型检索 | P1 | 按需降级：仅检索指定 MemoryType |
-| ☐ `persist_state(snapshot)` | P0 | StateSnapshot → 向量 embedding + 元数据记录 |
-| ☐ `persist_persona(snapshot)` | P1 | PersonaSnapshot → 元数据记录 |
-| ☐ `consolidate(episode)` | P0 | Episode → 提取关键记忆 → 写入向量 DB + 元数据 DB |
-| ☐ 注册为 visual_script NodeDefinition | P0 | `"memory.retrieve"`：Impure + Async |
-| ☐ 单元测试：retrieve 返回相关记忆 | P0 | |
-| ☐ 单元测试：persist_state → retrieve 往返 | P0 | |
+| ✅ `MemoryType` 枚举 | P0 | Episodic / Semantic / Procedural / Working |
+| ✅ `Memory` 结构体 | P0 | id, memory_type, content, embedding, score, state_snapshot, agent_id, access tracking |
+| ✅ `MemoryScore` 结构体 | P0 | similarity + recency + frequency → total（三等权） |
+| ✅ `UnifiedMemory` 结构体 | P0 | HashMap 内存实现，retrieve() / retrieve_typed() / persist / consolidate |
+| ✅ `retrieve(intent)` — 默认检索 | P0 | 余弦相似度排序 + 阈值过滤 + 自动记录访问 |
+| ✅ `retrieve_typed(intent, types)` — 按类型检索 | P1 | 仅检索指定 MemoryType |
+| ✅ `persist_state(snapshot)` | P0 | State 快照 → Working 记忆 |
+| ✅ `persist_persona(snapshot)` | P1 | Persona 快照 → Semantic 记忆 |
+| ✅ `consolidate(episode)` | P0 | Episode → Episodic + Semantic + Procedural 记忆 |
+| ✅ `Embedding::mock()` | P0 | 确定性伪嵌入，开发调试用 |
+| ✅ `MemoryFacade` 门面 | P0 | 封装常用操作：retrieve() / persist_state() / consolidate() |
+| ⬜ 注册为 visual_script NodeDefinition | P0 | 延后 |
+| ✅ 单元测试：retrieve 返回相关记忆 | P0 | 10 tests, 0 failed |
+| ✅ 单元测试：persist_state → retrieve 往返 | P0 | |
+
+**后续集成：**
+- 接 `uwu_database::VectorStore` → 生产级向量检索（Qdrant/Pgvector/LanceDB）
+- 接外部 embedding 服务 → OpenAI/本地模型替代 mock
+- 接 `agent-mesh` → 记忆变更事件通知
+
+**验收标准（已验证）：**
+```bash
+cargo test -p agent-memory   # 10 passed, 0 failed, 0 warnings
+cargo check -p agent-memory  # 0 errors, 0 warnings
+```
 
 ### 5.3 agent-reasoning（3-4 天）
 
