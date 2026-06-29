@@ -557,8 +557,8 @@ cargo check -p agent-reasoning  # 0 errors, 0 warnings
 ### 5.4 agent-execution ✅（已完成）
 
 > **实施日期：** 2026-06-29 |
-> **测试结果：** 9 passed, 0 failed, 0 warnings |
-> **关联：** 移除了未使用的 agent-types-ext/agent-mesh/agent-tools/uwu_wasm 依赖；需 tokio time feature
+> **测试结果：** 20 passed, 0 failed, 0 warnings |
+> **关联：** 移除了未使用的 agent-types-ext/agent-mesh/agent-tools/uwu_wasm 依赖；需 tokio time feature；新增 wasm-sandbox feature flag
 
 ```
 crates/agent-execution/
@@ -567,7 +567,8 @@ crates/agent-execution/
 └── src/
     ├── lib.rs              // ExecutionResult + Executor trait + ActionExecutor + tests ✅
     ├── mcp.rs              // McpClient + McpResult + tests ✅
-    └── output.rs           // OutputFormatter + OutputFormat + tests ✅
+    ├── output.rs           // OutputFormatter + OutputFormat + tests ✅
+    └── wasm.rs             // WasmExecutor + tests (feature = "wasm-sandbox") ✅
 ```
 
 | 任务 | 优先级 | 说明 |
@@ -576,15 +577,16 @@ crates/agent-execution/
 | ✅ `ActionExecutor` 结构体 | P0 | `execute_action()` + `execute_batch()` + with_mcp/with_max_parallel |
 | ✅ MCP 工具调用 | P0 | `McpClient`: register_tool + call（mock）+ 已注册/未注册分支 |
 | ✅ OutputFormatter | P0 | PlainText / Json / Markdown 三种输出格式 |
-| ⬜ WASM 沙箱执行 | P2 | 延后（需 uwu_wasm feature flag） |
+| ✅ WASM 沙箱执行 | P2 | `WasmExecutor`: uwu_wasm::Sandbox 集成 + Policy + 模块注册 + add/sub/mul 已验证（feature = "wasm-sandbox"） |
 | ✅ 注册为 visual_script NodeDefinition | P0 | `"execution.act"`: Impure + Async，feature = "visual-script" |
 | ✅ 单元测试：MCP 工具调用 mock | P0 | 9 tests, 0 failed |
-| ⬜ 单元测试：WASM 沙箱执行 | P2 | 延后 |
+| ✅ 单元测试：WASM 沙箱执行 | P2 | 11 tests (wasm module register/execute/batch/policy/missing params/unknown module)，0 failed |
 
 **验收标准（已验证）：**
 ```bash
-cargo test -p agent-execution   # 9 passed, 0 failed, 0 warnings
-cargo check -p agent-execution  # 0 errors, 0 warnings
+cargo test -p agent-execution                        # 9 passed, 0 failed, 0 warnings
+cargo test -p agent-execution --features wasm-sandbox  # 20 passed, 0 failed, 0 warnings
+cargo check -p agent-execution                       # 0 errors, 0 warnings
 ```
 
 ### 5.5 FlowGraph + FlowEngine ✅（已完成）
