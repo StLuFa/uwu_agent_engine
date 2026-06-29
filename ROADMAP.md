@@ -34,6 +34,7 @@
   阶段 1e    agent-character（人格维度）
   阶段 2     agent-mesh（Agent 语义事件网格）
   阶段 3a    agent-perception（感知域）
+  阶段 W     agent-wiki（多 Agent 协作知识库）
 
 待 实 施 ─────────────────────────────────────────────────────────────────
   阶段 3b-e  能力域剩余（memory / reasoning / execution / tools）
@@ -422,6 +423,47 @@ crates/agent-perception/
 cargo test -p agent-perception   # 13 passed, 0 failed, 0 warnings
 cargo check -p agent-perception  # 0 errors, 0 warnings
 ```
+
+---
+
+### W. agent-wiki ✅（已完成）
+
+> **实施日期：** 2026-06-29 |
+> **测试结果：** 12 passed, 0 failed, 0 warnings |
+> **定位：** 多 Agent 协作的结构化知识库，MVCC 版本化 + 可插拔存储后端
+
+```
+crates/agent-wiki/
+├── Cargo.toml
+└── src/
+    ├── lib.rs          // re-exports + 集成测试 ✅
+    ├── page.rs         // WikiPage + WikiPageVersion + PageDiff + PageStatus ✅
+    ├── repo.rs         // WikiRepo async trait（CRUD + search + filter + list）✅
+    └── store.rs        // MemoryWikiStore（开发用）+ tests ✅
+```
+
+| 任务 | 优先级 | 说明 |
+|---|---|---|
+| ✅ `WikiPage` 结构体 | P0 | page_id, title, content(md), tags, category, status, version_history, references |
+| ✅ `WikiPageVersion` 版本历史 | P0 | version, title, content, edit_summary, edited_by, edited_at |
+| ✅ MVCC 版本管理 | P0 | edit() → version += 1, rollback_to(), diff_versions() → PageDiff |
+| ✅ `WikiRepo` trait | P0 | async CRUD + search + by_tag/by_category/by_status + list 分页 |
+| ✅ `MemoryWikiStore` 实现 | P0 | HashMap 内存存储，标题去重，全文搜索 |
+| ✅ 单元测试 | P0 | 12 tests, 0 failed |
+
+**后续集成：**
+- 接 `uwu_database` 的 VectorStore → 语义检索
+- 接 `agent-crdt` → 多 Agent 无冲突协作编辑
+- 接 `agent-mesh` → wiki 变更事件通知
+- 接 `agent-collaboration` → 委派编辑任务
+
+**验收标准（已验证）：**
+```bash
+cargo test -p agent-wiki   # 12 passed, 0 failed, 0 warnings
+cargo check -p agent-wiki  # 0 errors, 0 warnings
+```
+
+---
 
 ### 5.2 agent-memory（2-3 天）
 

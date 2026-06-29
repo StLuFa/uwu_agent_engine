@@ -40,6 +40,8 @@ members = [
     # Sidecar
     "crates/agent-sidecar-consolidator",
     "crates/agent-sidecar-monitor",
+    # 知识库
+    "crates/agent-wiki",
 ]
 resolver = "3"
 

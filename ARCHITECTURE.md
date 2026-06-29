@@ -1161,6 +1161,7 @@ uwu_logger                   日志系统
 | `agent-uncertainty` | 贝叶斯不确定性 | `UncertaintyAggregator` | `types-core` |
 | `agent-crdt` | CRDT 状态 | `CRDTStore`, `StateMerger` | `types-core` |
 | `agent-tools` | MCP 协议 | `ToolExecutor`, `MCPClient` | `types-ext` |
+| `agent-wiki` | 多 Agent 协作知识库（MVCC 版本化 + 语义检索） | `WikiPage`, `WikiRepo`, `MemoryWikiStore` | `types-core` |
 | `agent-core` | 会话管理 + FlowGraph(基于 uwu_visual_script) + 能力注册表 | `Agent`, `FlowGraph`, `CapabilityRegistry` | `mesh`, 五维, 所有能力域, `uwu_visual_script` |
 | **Sidecar** | | | |
 | `agent-sidecar-consolidator` | 独立巩固（LearnNode+Guard） | — | `memory`, `learning`, `guard`, `mesh` |
@@ -1171,6 +1172,39 @@ uwu_logger                   日志系统
 | `uwu_database` | 统一数据访问层（SQL + Cache + VectorStore） | `Database`, `VectorStore`, `Repository` | 独立（被 `agent-memory` 消费） |
 | `uwu_event_mesh` | 事件网格实现（为 `agent-mesh` 提供底层能力） | `EventMesh`, `FlowHandle`, `TypeRegistry` | 独立 |
 | `uwu_logger` | 日志系统 | — | 独立 |
+
+---
+
+### 12.1 agent-wiki —— 多 Agent 协作知识库
+
+> LLM Wiki 是一个多 Agent 协作编辑的结构化知识库。WikiPage 带 MVCC 版本历史，
+> WikiRepo 提供可插拔存储后端（当前 MemoryStore，生产接 uwu_database 向量检索）。
+
+```
+Wiki 操作流:
+
+  创建页面:  Perception → WikiRepo.save(page)
+  编辑页面:  fork(State) → 沙盒推演 → evaluate() → WikiRepo.save(page)
+              └─ version += 1，追加 WikiPageVersion 到 history
+  版本历史:  WikiPage.version_history → diff_versions(v1, v2) → PageDiff
+  语义搜索:  WikiRepo.search(query) → 全文匹配（当前）/ 向量检索（接 uwu_database）
+  协作编辑:  agent-collaboration.delegate() + CRDT merge（无冲突合并）
+  变更通知:  agent-mesh.publish("agent.wiki.updated", event)
+  安全控制:  Character.check_core_values() + GuardLayer（五层闸门）
+  知识巩固:  Sidecar-Consolidator 消费 wiki 事件 → LearnNode → 持久化
+
+类型:
+  WikiPage { page_id, title, content(md), tags, category, status,
+             current_version, version_history: Vec<WikiPageVersion>,
+             references, referenced_by, created_by, timestamps }
+  WikiPageVersion { version, title, content, edit_summary, edited_by, edited_at }
+  PageDiff { title_changed, content_added, content_removed, v1, v2 }
+
+持久化:
+  WikiRepo trait（async CRUD + search/tag/category/status 筛选 + list 分页）
+  MemoryWikiStore（开发调试用，HashMap 实现）
+  → 后续接 uwu_database: VectorStore（语义检索）+ PostgreSQL（结构化查询）
+```
 
 ---
 
@@ -1187,6 +1221,8 @@ uwu_logger                   日志系统
               成本：verifier(~50ms本地模型) + pred_error(零LLM call) + cost(零LLM call)
 TTS机制:      渐进式预算压力（Normal→Degraded→Urgent→Abort，主动降推理策略而非硬截断）
 记忆存储:     Qdrant(向量) + PostgreSQL(元数据+关联关系)
+知识库:       agent-wiki（MVCC 版本化 WikiPage + WikiRepo trait + MemoryStore）
+              多 Agent 协作编辑 + 版本历史 + diff + rollback + 语义检索
 消息中间件:   NATS / JetStream（持久化事件日志）
               + SerializedEnvelope（跨进程类型安全，类型注册表）
               + EventEnvelope(sequence_number + replay_id + 幂等消费)
