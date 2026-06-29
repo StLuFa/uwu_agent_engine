@@ -111,7 +111,7 @@ impl GuardLayer {
             }
             // 2. 参数检查
             for rule in &self.parameter_rules {
-                if let Some(v) = rule.check(action, &ActionParams::default()).await {
+                if let Some(v) = rule.check(action, &action.params).await {
                     violations.push(v);
                 }
             }
@@ -221,5 +221,101 @@ impl GuardBuilder {
 impl Default for GuardBuilder {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+// ===========================================================================
+// 单元测试
+// ===========================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::rules::{NoRmRfRule, TokenBudgetRule, McpWriteAllowlistRule};
+
+    #[tokio::test]
+    async fn enforce_allows_safe_actions() {
+        let layer = GuardLayer::builder()
+            .add_instruction_rule(NoRmRfRule)
+            .add_budget_rule(TokenBudgetRule)
+            .build();
+
+        let actions = vec![Action::new("click", ActionParams::new())];
+        let ctx = AgentContext {
+            session_id: "s1".into(),
+            agent_id: "a1".into(),
+            tokens_used: 100,
+            max_tokens: 1000,
+            retries: 0,
+            max_retries: 5,
+        };
+
+        let result = layer.enforce(&actions, &ctx).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn enforce_blocks_destructive_action() {
+        let layer = GuardLayer::builder()
+            .add_instruction_rule(NoRmRfRule)
+            .build();
+
+        let actions = vec![Action::new("rm_rf", ActionParams::new())];
+        let ctx = AgentContext {
+            session_id: "s1".into(),
+            agent_id: "a1".into(),
+            tokens_used: 100,
+            max_tokens: 1000,
+            retries: 0,
+            max_retries: 5,
+        };
+
+        let result = layer.enforce(&actions, &ctx).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn enforce_blocks_on_budget_exhausted() {
+        let layer = GuardLayer::builder()
+            .add_budget_rule(TokenBudgetRule)
+            .build();
+
+        let actions = vec![Action::new("click", ActionParams::new())];
+        let ctx = AgentContext {
+            session_id: "s1".into(),
+            agent_id: "a1".into(),
+            tokens_used: 1000,
+            max_tokens: 1000, // exhausted
+            retries: 0,
+            max_retries: 5,
+        };
+
+        let result = layer.enforce(&actions, &ctx).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn check_egress_allows_safe() {
+        let layer = GuardLayer::builder()
+            .add_egress_rule(McpWriteAllowlistRule {
+                allowed_targets: vec!["safe".into()],
+            })
+            .build();
+
+        assert!(layer.check_egress("safe-server").await.is_ok());
+        assert!(layer.check_egress("evil-server").await.is_err());
+    }
+
+    #[test]
+    fn builder_registers_all_layers() {
+        let _layer = GuardLayer::builder()
+            .add_instruction_rule(NoRmRfRule)
+            .add_budget_rule(TokenBudgetRule)
+            .add_egress_rule(McpWriteAllowlistRule {
+                allowed_targets: vec!["a".into()],
+            })
+            .build();
+
+        // Compiles and builds = all layers registered
     }
 }

@@ -77,7 +77,6 @@ name = "agent-guard"
 version = "0.1.0"
 dependencies = [
  "agent-types-core",
- "agent-types-ext",
  "async-trait",
  "chrono",
  "serde",

@@ -42,10 +42,11 @@
   阶段 5a    agent-task（任务域）
   阶段 5b    agent-collaboration（多 Agent 协作）
   阶段 6     agent-learning（LearnNode 自学习）
+  阶段 7     agent-guard（GuardLayer 五层闸门）
   阶段 W     agent-wiki（多 Agent 协作知识库）
 
 待 实 施 ─────────────────────────────────────────────────────────────────
-  阶段 7    ██████████░░░░░░░░░░░░░░  GuardLayer（1 周）
+  阶段 8    ██████████████░░░░░░░░░░  Sidecar（1-2 周）
   阶段 5    ██████████████░░░░░░░░░░  Task + Collaboration（1-2 周）
   阶段 6    ██████████░░░░░░░░░░░░░░  LearnNode（1 周）
   阶段 7    ██████████░░░░░░░░░░░░░░  GuardLayer（1 周）
@@ -786,42 +787,46 @@ cargo check -p agent-learning  # 0 errors, 0 warnings
 
 ---
 
-## 9. 阶段 7：GuardLayer 安全守卫
+## 9. 阶段 7：GuardLayer 安全守卫 ✅（已完成）
 
-> **依赖：** 阶段 3（agent-execution）、阶段 6（agent-learning）
-> **目标：** 五层硬闸门，编译期注册，不可自提升
+> **实施日期：** 2026-06-29 | **测试结果：** 12 passed, 0 failed |
+> **关联：** 移除了 agent-types-ext 依赖；修复了 enforce() 中 ParameterRule 使用 action.params
 
 ```
 crates/agent-guard/
 ├── Cargo.toml
+├── README.md               // 完整使用文档 + 五层闸门表 + 8 个内置规则表
 └── src/
-    ├── lib.rs              // GuardLayer + GuardBuilder
-    ├── rules/
-    │   ├── mod.rs
-    │   ├── instruction.rs  // InstructionRule + 内置规则
-    │   ├── parameter.rs    // ParameterRule
-    │   ├── capability.rs   // CapabilityRule
-    │   ├── budget.rs       // BudgetRule + TokenBudgetRule
-    │   └── egress.rs       // EgressRule + McpWriteAllowlistRule
-    └── audit.rs            // AuditLog
+    ├── lib.rs              // 5 trait + GuardLayer + GuardBuilder + enforce + tests ✅
+    ├── audit.rs            // AuditLog + AuditEvent + test ✅
+    └── rules/
+        └── mod.rs          // 8 个内置规则 + tests ✅
 ```
 
 | 任务 | 优先级 | 说明 |
 |---|---|---|
-| ☐ `InstructionRule` trait | P0 | `async fn check(action) -> Option<GuardViolation>` |
-| ☐ `ParameterRule` trait | P0 | `async fn check(action, params) -> Option<GuardViolation>` |
-| ☐ `CapabilityRule` trait | P0 | `async fn check(action, context) -> Option<GuardViolation>` |
-| ☐ `BudgetRule` trait | P0 | `async fn check(budget_consumed, limits) -> Option<GuardViolation>` |
-| ☐ `EgressRule` trait | P0 | `async fn check_egress(target, context) -> Option<GuardViolation>` |
-| ☐ `GuardLayer` 结构体 + `enforce()` | P0 | 顺序五层检查 → 返回 allowed actions 或 blocked violations |
-| ☐ `GuardBuilder` | P0 | Builder 模式：编译期注册规则 |
-| ☐ 内置规则：`NoRmRfRule` | P0 | 禁止递归删除 |
-| ☐ 内置规则：`TokenBudgetRule` | P0 | Token 预算检查 |
-| ☐ 内置规则：`McpWriteAllowlistRule` | P0 | MCP 写入白名单 |
-| ☐ 内置规则：`NoNetworkToInternal` | P1 | 禁止访问内网地址 |
-| ☐ 内置规则：`FileSizeLimit` | P1 | 文件操作大小限制 |
-| ☐ 内置规则：`PortAllowlist` | P1 | 端口白名单 |
-| ☐ `AuditLog` 结构体 | P0 | 记录所有 Guard 事件（hit/block/bypass） |
+| ✅ `InstructionRule` trait | P0 | `async fn check(action) -> Option<GuardViolation>` |
+| ✅ `ParameterRule` trait | P0 | `async fn check(action, params) -> Option<GuardViolation>` |
+| ✅ `CapabilityRule` trait | P0 | `async fn check(action) -> Option<GuardViolation>` |
+| ✅ `BudgetRule` trait | P0 | `async fn check(tokens, max_tokens, retries, max_retries) -> Option<GuardViolation>` |
+| ✅ `EgressRule` trait | P0 | `async fn check_egress(target) -> Option<GuardViolation>` |
+| ✅ `GuardLayer` + `enforce()` | P0 | 顺序五层检查 → allowed actions 或 blocked violations |
+| ✅ `GuardBuilder` | P0 | Builder 模式：编译期注册 |
+| ✅ `NoRmRfRule` | P0 | 禁止 rm_rf / delete_all / drop_table / format |
+| ✅ `NoShellExecutionRule` | P0 | 禁止 exec / system / shell |
+| ✅ `FileSizeLimitRule` | P1 | 文件大小上限 |
+| ✅ `PortAllowlistRule` | P1 | 端口白名单 |
+| ✅ `TokenBudgetRule` | P0 | Token 耗尽检查 |
+| ✅ `RetryBudgetRule` | P0 | 重试次数检查 |
+| ✅ `McpWriteAllowlistRule` | P0 | MCP 写入白名单 |
+| ✅ `NoNetworkToInternalRule` | P1 | 禁止 10.x / 192.168.x / 172.16.x |
+| ✅ `AuditLog` | P0 | total_events / blocked_count / recent(n) + test |
+
+**验收标准：**
+```bash
+cargo test -p agent-guard   # 12 passed, 0 failed
+cargo check -p agent-guard  # 0 errors, 0 warnings
+```
 | ☐ 单元测试：rm -rf 被阻断 | P0 | |
 | ☐ 单元测试：Token 耗尽 → Warning | P0 | |
 | ☐ 单元测试：未授权 MCP 写入被阻断 | P0 | |
