@@ -37,10 +37,11 @@
   阶段 3b    agent-memory（统一记忆）
   阶段 3c    agent-reasoning（推理域）
   阶段 3d    agent-execution（执行域）
+  阶段 3e    agent-core（FlowGraph + FlowEngine）
   阶段 W     agent-wiki（多 Agent 协作知识库）
 
 待 实 施 ─────────────────────────────────────────────────────────────────
-  阶段 3e    能力域剩余（tools）
+  阶段 4    ██████████████░░░░░░░░░░  Session 主循环（1-2 周）
   阶段 4    ██████████████░░░░░░░░░░  Session 主循环（1-2 周）
   阶段 5    ██████████████░░░░░░░░░░  Task + Collaboration（1-2 周）
   阶段 6    ██████████░░░░░░░░░░░░░░  LearnNode（1 周）
@@ -569,13 +570,13 @@ crates/agent-execution/
 
 | 任务 | 优先级 | 说明 |
 |---|---|---|
-| ☑ `Executor` trait 定义 | P0 | `async fn execute(action, state) -> ExecutionResult` |
-| ☑ `ActionExecutor` 结构体 | P0 | `execute_action()` + `execute_batch()` + with_mcp/with_max_parallel |
-| ☑ MCP 工具调用 | P0 | `McpClient`: register_tool + call（mock）+ 已注册/未注册分支 |
-| ☑ OutputFormatter | P0 | PlainText / Json / Markdown 三种输出格式 |
+| ✅ `Executor` trait 定义 | P0 | `async fn execute(action, state) -> ExecutionResult` |
+| ✅ `ActionExecutor` 结构体 | P0 | `execute_action()` + `execute_batch()` + with_mcp/with_max_parallel |
+| ✅ MCP 工具调用 | P0 | `McpClient`: register_tool + call（mock）+ 已注册/未注册分支 |
+| ✅ OutputFormatter | P0 | PlainText / Json / Markdown 三种输出格式 |
 | ⬜ WASM 沙箱执行 | P2 | 延后（需 uwu_wasm feature flag） |
 | ⬜ 注册为 visual_script NodeDefinition | P0 | 延后 |
-| ☑ 单元测试：MCP 工具调用 mock | P0 | 9 tests, 0 failed |
+| ✅ 单元测试：MCP 工具调用 mock | P0 | 9 tests, 0 failed |
 | ⬜ 单元测试：WASM 沙箱执行 | P2 | 延后 |
 
 **验收标准（已验证）：**
@@ -584,28 +585,42 @@ cargo test -p agent-execution   # 9 passed, 0 failed, 0 warnings
 cargo check -p agent-execution  # 0 errors, 0 warnings
 ```
 
-### 5.5 FlowGraph + FlowEngine（2-3 天）
+### 5.5 FlowGraph + FlowEngine ✅（已完成）
+
+> **实施日期：** 2026-06-29 |
+> **测试结果：** 13 passed, 0 failed, 0 warnings |
+> **关联：** 简化了 agent-core 依赖（仅 agent-state + agent-types-core）；FlowGraph 为纯配置层
 
 ```
-crates/agent-core/src/
-├── flow.rs               // FlowGraph（领域包装层）
-├── engine.rs             // FlowEngine（主循环执行器）
-└── capability.rs         // CapabilityRegistry（动态注册）
+crates/agent-core/
+├── Cargo.toml
+├── README.md               // 完整使用文档 + 管道拓扑图
+└── src/
+    ├── lib.rs              // re-exports + 集成测试 ✅
+    ├── flow.rs             // FlowGraph + FlowConfig + Stage + FlowEdge + tests ✅
+    ├── engine.rs           // FlowEngine + FlowContext + Decision + tests ✅
+    └── capability.rs       // CapabilityRegistry + CapabilityHandler + tests ✅
 ```
 
 | 任务 | 优先级 | 说明 |
 |---|---|---|
-| ☐ `FlowGraph` 结构体 | P0 | 包装 `visual_script::Graph` + 缓存 `SlotProgram` |
-| ☐ `FlowGraph::standard()` | P0 | 构建标准 P→M→R→E 管道 |
-| ☐ `FlowGraph::high_security()` | P1 | 标准管道 + reasoning.decision → reasoning.validate 回边 |
-| ☐ `FlowGraph::from_config()` | P1 | 从 FlowConfig 构建自定义图 |
-| ☐ `add_edge_dynamic()` | P0 | 克隆 Graph → 添加边 → 重新编译 → 原子替换 program |
-| ☐ `CapabilityRegistry` 结构体 | P0 | `perceivers: Vec<Box<dyn Perceiver>>, reasoners, executors` |
-| ☐ `FlowEngine` 结构体 | P0 | `run(flow: &FlowGraph, state: &AgentState) -> Decision` |
-| ☐ FlowEngine 与 visual_script VM 集成 | P0 | 使用 Vm::run_entry_async 执行 SlotProgram |
-| ☐ 单元测试：standard() 编译成功 | P0 | |
-| ☐ 单元测试：add_edge_dynamic() 后 program 更新 | P0 | |
-| ☐ 单元测试：FlowEngine 完整执行 P→M→R→E | P0 | |
+| ✅ `FlowGraph` 结构体 | P0 | 声明式管道配置，standard() / high_security() / custom() |
+| ✅ `FlowGraph::standard()` | P0 | P→M→R→E 标准管道 |
+| ✅ `FlowGraph::high_security()` | P1 | P→M→R→V→R→E（含 Validate 验证回边） |
+| ✅ `FlowConfig::custom()` | P1 | 自定义 stages + edges |
+| ✅ `add_edge_dynamic()` | P0 | 运行时动态添加阶段和边 |
+| ✅ `CapabilityRegistry` 结构体 | P0 | HashMap<Stage, Vec<Box<dyn CapabilityHandler>>>，同阶段多处理器 |
+| ✅ `FlowEngine` 结构体 | P0 | `run(flow, input, state) -> FlowContext`，按拓扑执行各阶段 |
+| ⬜ FlowEngine 与 visual_script VM 集成 | P0 | 延后（FlowGraph 当前为纯配置，后续可接 uwu_visual_script VM） |
+| ✅ 单元测试：standard/high_security 管道执行 | P0 | 13 tests, 0 failed |
+| ✅ 单元测试：add_edge_dynamic() 更新 | P0 | |
+| ✅ 单元测试：FlowEngine 完整执行 P→M→R→E | P0 | |
+
+**验收标准（已验证）：**
+```bash
+cargo test -p agent-core   # 13 passed, 0 failed, 0 warnings
+cargo check -p agent-core  # 0 errors, 0 warnings
+```
 
 ---
 

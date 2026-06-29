@@ -1,35 +1,52 @@
 //! # agent-core
 //!
-//! Agent 核心 —— 会话管理 + FlowGraph(基于 uwu_visual_script) + FlowEngine + CapabilityRegistry。
+//! Agent 核心 —— FlowGraph + FlowEngine + CapabilityRegistry。
 //!
-//! 这是整个 Agent 引擎的顶层聚合 crate。它不实现新能力，而是将其他 crate
-//! 组装成可用的 Agent 实例。
-//!
-//! ## 模块
-//!
-//! - `flow` — FlowGraph 领域包装层（基于 uwu_visual_script）
-//! - `engine` — FlowEngine 主循环执行器
-//! - `capability` — CapabilityRegistry 动态能力注册
+//! 这是整个 Agent 引擎的编排层。不实现新能力，将各能力域组装成可执行的决策管道。
 
 pub mod capability;
 pub mod engine;
 pub mod flow;
 
 pub use capability::CapabilityRegistry;
-pub use engine::FlowEngine;
-pub use flow::{FlowGraph, FlowConfig};
+pub use engine::{Decision, FlowContext, FlowEngine};
+pub use flow::{FlowConfig, FlowEdge, FlowGraph, Stage};
 
-use agent_session::Session;
+// ===========================================================================
+// 单元测试（集成）
+// ===========================================================================
 
-/// Agent 顶层门面
-pub struct Agent {
-    pub session: Session,
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-impl Agent {
-    /// 处理用户输入
-    pub async fn process(&mut self, input: &str) -> String {
-        let result = self.session.process_turn(input).await;
-        result.output.content
+    #[tokio::test]
+    async fn full_pipeline_integration() {
+        let registry = CapabilityRegistry::new();
+        // In real usage, register actual Perceiver/Reasoner/Executor implementations
+        let engine = FlowEngine::new(registry);
+        let flow = FlowGraph::standard();
+        let state = agent_state::AgentState::new();
+
+        let ctx = engine.run(&flow, "user clicked submit button", &state).await;
+
+        assert!(ctx.context_description.unwrap().contains("clicked"));
+        assert!(!ctx.retrieved_memories.is_empty());
+        assert!(ctx.decision.is_some());
+        assert!(ctx.execution_output.unwrap().contains("respond"));
+        assert_eq!(ctx.completed_stages.len(), 4);
+    }
+
+    #[test]
+    fn standard_flow_has_all_stages() {
+        let flow = FlowGraph::standard();
+        assert_eq!(flow.stage_count(), 4);
+    }
+
+    #[test]
+    fn high_security_has_five_stages() {
+        let flow = FlowGraph::high_security();
+        assert_eq!(flow.stage_count(), 5);
+        assert!(flow.has_validation());
     }
 }

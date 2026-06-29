@@ -48,30 +48,11 @@ dependencies = [
 name = "agent-core"
 version = "0.1.0"
 dependencies = [
- "agent-character",
- "agent-crdt",
- "agent-execution",
- "agent-guard",
- "agent-learning",
- "agent-memory",
- "agent-mesh",
- "agent-metacognition",
- "agent-perception",
- "agent-persona",
- "agent-reaction",
- "agent-reasoning",
  "agent-state",
- "agent-tools",
  "agent-types-core",
- "agent-types-ext",
- "agent-uncertainty",
- "async-trait",
- "chrono",
  "serde",
  "serde_json",
  "tokio",
- "uwu_event_mesh",
- "uwu_visual_script",
 ]
 
 [[package]]
