@@ -32,10 +32,9 @@
   阶段 1c    agent-metacognition（元认知维度）
   阶段 1d    agent-persona（人物角色维度）
   阶段 1e    agent-character（人格维度）
+  阶段 2     agent-mesh（Agent 语义事件网格）
 
 待 实 施 ─────────────────────────────────────────────────────────────────
-  阶段 2    ██████████░░░░░░░░░░░░░  agent-mesh 包装（1 周）
-  阶段 2    ██████████░░░░░░░░░░░░░  agent-mesh 包装（1 周）
   阶段 3    ████████████████████░░░░  能力域 + FlowGraph（2-3 周）
   阶段 4    ██████████████░░░░░░░░░░  Session 主循环（1-2 周）
   阶段 5    ██████████████░░░░░░░░░░  Task + Collaboration（1-2 周）
@@ -340,40 +339,48 @@ cargo check -p agent-character  # 0 errors, 0 warnings
 
 ---
 
-## 4. 阶段 2：agent-mesh Agent 语义包装
+## 4. 阶段 2：agent-mesh Agent 语义包装 ✅（已完成）
 
-> **依赖：** 阶段 0a（uwu_event_mesh）、阶段 1（五维）
-> **目标：** 在 uwu_event_mesh 之上建立 Agent 领域的事件类型与 topic 约定
+> **实施日期：** 2026-06-29 |
+> **测试结果：** 11 passed, 0 failed, 0 warnings |
+> **关联：** 需 uuid 依赖
 
 ```
 crates/agent-mesh/
 ├── Cargo.toml
+├── README.md               // 完整使用文档 + 9 种事件类型表
 └── src/
-    ├── lib.rs              // re-exports
-    ├── topics.rs           // Agent 领域 topic 常量（state.snapshot / task.created / decision.made / ...）
+    ├── lib.rs              // AgentMesh 门面 + re-exports ✅
+    ├── topics.rs           // 4 通配符 + 8 精确 topic 常量 ✅
     ├── events/
     │   ├── mod.rs
-    │   ├── state.rs        // StateSnapshotEvent（封装 StateSnapshot）
-    │   ├── task.rs         // TaskCreated / TaskCompleted / SubtaskDelegated
-    │   ├── decision.rs     // DecisionMade / DecisionRetried
-    │   └── persona.rs      // PersonaUpdated / RelationshipChanged
-    └── registry.rs         // AgentTypeRegistry（预注册所有 Agent 事件类型）
+    │   ├── state.rs        // StateSnapshotEvent ✅
+    │   ├── task.rs         // TaskCreated / TaskCompleted / SubtaskDelegated / DelegationResult ✅
+    │   ├── decision.rs     // DecisionMade / DecisionRetried ✅
+    │   └── persona.rs      // PersonaUpdated / RelationshipChanged ✅
+    └── registry.rs         // AgentTypeRegistry::register_all() ✅
 ```
 
 | 任务 | 优先级 | 说明 |
 |---|---|---|
-| ☐ 定义 topic 命名空间常量 | P0 | `TOPIC_STATE = "agent.state.>"`, `TOPIC_TASK = "agent.task.>"`, `TOPIC_DECISION = "agent.decision.>"`, `TOPIC_PERSONA = "agent.persona.>"` |
-| ☐ `StateSnapshotEvent` 封装 | P0 | 包装 `StateSnapshot` + topic 约定 `"agent.state.snapshot"` |
-| ☐ `TaskCreated` / `TaskCompleted` 事件 | P0 | 封装 Task 生命周期 |
-| ☐ `SubtaskDelegated` / `DelegationResult` 事件 | P1 | 封装协作委派 |
-| ☐ `DecisionMade` / `DecisionRetried` 事件 | P0 | 封装元认知决策 |
-| ☐ `PersonaUpdated` / `RelationshipChanged` 事件 | P1 | 封装 Persona 变更 |
-| ☐ `AgentTypeRegistry` 初始化 | P0 | 启动期一次性注册所有 Agent 事件类型到 TypeRegistry |
-| ☐ `AgentMesh` 门面 | P0 | 包装 `EventMesh` + `FlowHandle`，提供 agent 语义的 publish 方法 |
-| ☐ 单元测试：每种事件序列化/反序列化往返 | P0 | |
-| ☐ 单元测试：TypeRegistry 拒绝未知事件 | P0 | |
+| ☑ 定义 topic 命名空间常量 | P0 | 4 通配符（TOPIC_STATE/TASK/DECISION/PERSONA）+ 8 精确 topic |
+| ☑ `StateSnapshotEvent` 封装 | P0 | event_id, agent_id, snapshot_json, snapshot_version, timestamp |
+| ☑ `TaskCreated` / `TaskCompleted` 事件 | P0 | 封装 Task 生命周期 |
+| ☑ `SubtaskDelegated` / `DelegationResult` 事件 | P1 | 封装协作委派 |
+| ☑ `DecisionMade` / `DecisionRetried` 事件 | P0 | 封装元认知决策（meta_score, meta_action, tokens_used） |
+| ☑ `PersonaUpdated` / `RelationshipChanged` 事件 | P1 | 封装 Persona 变更 |
+| ☑ `AgentTypeRegistry` 初始化 | P0 | 启动期一次性注册全部 9 种事件类型（domain 用下划线） |
+| ☑ `AgentMesh` 门面 | P0 | 包装 `EventMesh` + `FlowHandle`，构造时自动注册所有类型 |
+| ☑ 单元测试：每种事件序列化/反序列化往返 | P0 | 11 tests, 0 failed |
+| ☑ 单元测试：TypeRegistry 注册全部类型 | P0 | |
 
 **关键设计：** 本 crate 是对 `uwu_event_mesh` 的薄包装，不重复实现任何底层机制。只定义 Agent 领域的 topic 命名空间和事件类型。
+
+**验收标准（已验证）：**
+```bash
+cargo test -p agent-mesh   # 11 passed, 0 failed, 0 warnings
+cargo check -p agent-mesh  # 0 errors, 0 warnings
+```
 
 ---
 

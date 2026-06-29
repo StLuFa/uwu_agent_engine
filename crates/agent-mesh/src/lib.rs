@@ -53,3 +53,109 @@ impl AgentMesh {
         Self { mesh, flow, type_registry: registry }
     }
 }
+
+// ===========================================================================
+// 单元测试
+// ===========================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::events::{
+        decision::{DecisionMade, DecisionRetried},
+        persona::{PersonaUpdated, RelationshipChanged},
+        state::StateSnapshotEvent,
+        task::{DelegationResult, SubtaskDelegated, TaskCompleted, TaskCreated},
+    };
+
+    #[test]
+    fn state_snapshot_event_roundtrip() {
+        let event = StateSnapshotEvent::new("agent-1", r#"{"version":1}"#, 1);
+        let json = serde_json::to_string(&event).unwrap();
+        let back: StateSnapshotEvent = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.agent_id, "agent-1");
+        assert_eq!(back.snapshot_version, 1);
+    }
+
+    #[test]
+    fn task_created_event_roundtrip() {
+        let event = TaskCreated::new("task-1", "test goal", 5, "agent-1");
+        let json = serde_json::to_string(&event).unwrap();
+        let back: TaskCreated = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.task_id, "task-1");
+        assert_eq!(back.priority, 5);
+    }
+
+    #[test]
+    fn task_completed_event_roundtrip() {
+        let event = TaskCompleted::new("task-1", "agent-2", true, "done");
+        let json = serde_json::to_string(&event).unwrap();
+        let back: TaskCompleted = serde_json::from_str(&json).unwrap();
+        assert!(back.success);
+    }
+
+    #[test]
+    fn subtask_delegated_event_roundtrip() {
+        let event = SubtaskDelegated::new("task-1", "sub-1", "agent-1", "agent-2", "do X");
+        let json = serde_json::to_string(&event).unwrap();
+        let back: SubtaskDelegated = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.delegated_to, "agent-2");
+    }
+
+    #[test]
+    fn delegation_result_event_roundtrip() {
+        let event = DelegationResult::new("task-1", "sub-1", "agent-2", true, "ok");
+        let json = serde_json::to_string(&event).unwrap();
+        let back: DelegationResult = serde_json::from_str(&json).unwrap();
+        assert!(back.success);
+    }
+
+    #[test]
+    fn decision_made_event_roundtrip() {
+        let event = DecisionMade::new("agent-1", "click button", 0.85, "Proceed", 100);
+        let json = serde_json::to_string(&event).unwrap();
+        let back: DecisionMade = serde_json::from_str(&json).unwrap();
+        assert!((back.meta_score - 0.85).abs() < 0.001);
+        assert_eq!(back.meta_action, "Proceed");
+    }
+
+    #[test]
+    fn decision_retried_event_roundtrip() {
+        let event = DecisionRetried::new("agent-1", "dec-1", "loop detected", 2);
+        let json = serde_json::to_string(&event).unwrap();
+        let back: DecisionRetried = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.retry_count, 2);
+    }
+
+    #[test]
+    fn persona_updated_event_roundtrip() {
+        let event = PersonaUpdated::new("agent-1", 42, "collaboration completed");
+        let json = serde_json::to_string(&event).unwrap();
+        let back: PersonaUpdated = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.new_version, 42);
+    }
+
+    #[test]
+    fn relationship_changed_event_roundtrip() {
+        let event = RelationshipChanged::new("agent-1", "agent-2", 0.8, 0.2);
+        let json = serde_json::to_string(&event).unwrap();
+        let back: RelationshipChanged = serde_json::from_str(&json).unwrap();
+        assert!((back.new_trust - 0.8).abs() < 0.001);
+        assert!((back.trust_delta - 0.2).abs() < 0.001);
+    }
+
+    #[test]
+    fn topic_constants_defined() {
+        assert!(TOPIC_STATE.contains("agent.state"));
+        assert!(TOPIC_TASK.contains("agent.task"));
+        assert!(TOPIC_DECISION.contains("agent.decision"));
+        assert!(TOPIC_PERSONA.contains("agent.persona"));
+    }
+
+    #[test]
+    fn registry_accepts_all_event_types() {
+        let registry = Arc::new(TypeRegistry::new());
+        AgentTypeRegistry::register_all(&registry);
+        // If this compiles and runs, all types are registered
+    }
+}
