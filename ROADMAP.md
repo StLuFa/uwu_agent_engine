@@ -30,9 +30,11 @@
   阶段 1a    agent-state + agent-types-core（Agent 状态维度）
   阶段 1b    agent-reaction（反射短路维度）
   阶段 1c    agent-metacognition（元认知维度）
+  阶段 1d    agent-persona（人物角色维度）
+  阶段 1e    agent-character（人格维度）
 
 待 实 施 ─────────────────────────────────────────────────────────────────
-  阶段 1d-e  五维剩余（persona / character）
+  阶段 2    ██████████░░░░░░░░░░░░░  agent-mesh 包装（1 周）
   阶段 2    ██████████░░░░░░░░░░░░░  agent-mesh 包装（1 周）
   阶段 3    ████████████████████░░░░  能力域 + FlowGraph（2-3 周）
   阶段 4    ██████████████░░░░░░░░░░  Session 主循环（1-2 周）
@@ -176,17 +178,17 @@ crates/agent-reaction/
 
 | 任务 | 优先级 | 说明 |
 |---|---|---|
-| ☑ `ReactionRule` trait 定义 | P0 | `fn matches(&self, state: &AgentState) -> bool` + `async fn react(&self, state: &AgentState) -> Action` |
-| ☑ `ReactionLayer` 结构体 + `intercept()` | P0 | 顺序遍历 rules，命中则返回 `Reaction::Hit(Action)`，否则 `Reaction::Miss` |
-| ☑ `PopupCloseRule` 实现 | P1 | 文本关键词匹配弹窗描述 → 返回 Click 动作 |
-| ☑ `RateLimitRetryRule` 实现 | P1 | 文本关键词匹配限流信号 → 返回 Wait+Retry 动作 |
-| ☑ `CaptchaDetectRule` 实现 | P2 | 文本关键词匹配验证码 → 返回 RequestHuman 动作 |
-| ☑ `IdleTimeoutRule` 实现 | P2 | 检测失败循环或停滞状态 → 返回 ReEvaluateGoal 动作 |
-| ☑ `ReactionStats` 结构体 | P1 | AtomicU64 hits/misses + total() + hit_rate() |
-| ☑ `ReactionLayerBuilder` | P0 | Builder 模式：`ReactionLayer::builder().add_rule(r1).add_rule(r2).build()` |
-| ☑ 单元测试：每个内置规则 match/miss | P1 | 4 规则 × 3-4 场景 = 17 tests |
-| ☑ 单元测试：Hit 时短路（不调用后续规则） | P0 | 22 tests, 0 failed |
-| ☑ 单元测试：stats 计数正确 | P1 | |
+| ✅ `ReactionRule` trait 定义 | P0 | `fn matches(&self, state: &AgentState) -> bool` + `async fn react(&self, state: &AgentState) -> Action` |
+| ✅ `ReactionLayer` 结构体 + `intercept()` | P0 | 顺序遍历 rules，命中则返回 `Reaction::Hit(Action)`，否则 `Reaction::Miss` |
+| ✅ `PopupCloseRule` 实现 | P1 | 文本关键词匹配弹窗描述 → 返回 Click 动作 |
+| ✅ `RateLimitRetryRule` 实现 | P1 | 文本关键词匹配限流信号 → 返回 Wait+Retry 动作 |
+| ✅ `CaptchaDetectRule` 实现 | P2 | 文本关键词匹配验证码 → 返回 RequestHuman 动作 |
+| ✅ `IdleTimeoutRule` 实现 | P2 | 检测失败循环或停滞状态 → 返回 ReEvaluateGoal 动作 |
+| ✅ `ReactionStats` 结构体 | P1 | AtomicU64 hits/misses + total() + hit_rate() |
+| ✅ `ReactionLayerBuilder` | P0 | Builder 模式：`ReactionLayer::builder().add_rule(r1).add_rule(r2).build()` |
+| ✅ 单元测试：每个内置规则 match/miss | P1 | 4 规则 × 3-4 场景 = 17 tests |
+| ✅ 单元测试：Hit 时短路（不调用后续规则） | P0 | 22 tests, 0 failed |
+| ✅ 单元测试：stats 计数正确 | P1 | |
 | ⬜ 基准测试：intercept() 延迟 < 1ms（100 rules） | P2 | 延后 |
 
 **依赖：** `agent-state`（读 State），`agent-types-core`（Action 类型）
@@ -229,22 +231,22 @@ crates/agent-metacognition/
 
 | 任务 | 优先级 | 说明 |
 |---|---|---|
-| ☑ `MetaScoreWeights` 定义 | P0 | `verifier: 0.5, pred_error: 0.3, cost_remaining: 0.2`（可配置） |
-| ☑ `CalibrationModel` trait 定义 | P0 | `async fn calibrate(state, decision_text) -> CalibrationResult`（用 &str 解耦） |
-| ☑ `CalibrationResult` 结构体 | P0 | `raw_confidence, calibrated_confidence, should_retry, reasoning` |
-| ☑ `MetaAction` 枚举 | P0 | Proceed / RetryDecision / RequestClarification / SwitchStrategy / DelegateToHuman / AbortOnBudget |
-| ☑ `evaluate()` 三信号融合 | P0 | `meta_score = w1×verifier + w2×(1-pred_error) + w3×cost_remaining` + InteractionPattern 消费 |
-| ☑ `MetacognitiveAssessment` 结构体 | P0 | `calibration, meta_score, knows_unknown, concept_drifting, budget_exhausted, suggested_action` |
-| ☑ `compute_cost_remaining()` | P0 | 委托给 BudgetConsumed::cost_remaining_fraction() |
-| ☑ `TTSSignal` 枚举 + `tts_signal()` | P0 | Normal/Degraded/Urgent/Abort 四级，classify_tts() 分档 |
-| ☑ `calibrate_with_outcome()` | P0 | state.update_pred_error(actual) + 追加 CalibrationRecord + anomaly_detector.update() |
-| ☑ `AnomalyDetector` 结构体 | P1 | 滑动窗口（50 条）+ EMA 基线更新 + drift_threshold=0.2 |
-| ☑ `CalibrationHistory` 管理 | P1 | VecDeque 环形缓冲，容量 1000，push()/recent(n)/recent_avg_meta_score() |
-| ☑ 单元测试：三信号融合公式计算正确 | P0 | 16 tests, 0 failed |
-| ☑ 单元测试：TTS 分档边界（0.5/0.2/0.05） | P0 | |
-| ☑ 单元测试：loop_detected → SwitchStrategy | P0 | |
-| ☑ 单元测试：cost < 0.05 → AbortOnBudget | P0 | |
-| ☑ 单元测试：anomaly detector 漂移检测 | P1 | |
+| ✅ `MetaScoreWeights` 定义 | P0 | `verifier: 0.5, pred_error: 0.3, cost_remaining: 0.2`（可配置） |
+| ✅ `CalibrationModel` trait 定义 | P0 | `async fn calibrate(state, decision_text) -> CalibrationResult`（用 &str 解耦） |
+| ✅ `CalibrationResult` 结构体 | P0 | `raw_confidence, calibrated_confidence, should_retry, reasoning` |
+| ✅ `MetaAction` 枚举 | P0 | Proceed / RetryDecision / RequestClarification / SwitchStrategy / DelegateToHuman / AbortOnBudget |
+| ✅ `evaluate()` 三信号融合 | P0 | `meta_score = w1×verifier + w2×(1-pred_error) + w3×cost_remaining` + InteractionPattern 消费 |
+| ✅ `MetacognitiveAssessment` 结构体 | P0 | `calibration, meta_score, knows_unknown, concept_drifting, budget_exhausted, suggested_action` |
+| ✅ `compute_cost_remaining()` | P0 | 委托给 BudgetConsumed::cost_remaining_fraction() |
+| ✅ `TTSSignal` 枚举 + `tts_signal()` | P0 | Normal/Degraded/Urgent/Abort 四级，classify_tts() 分档 |
+| ✅ `calibrate_with_outcome()` | P0 | state.update_pred_error(actual) + 追加 CalibrationRecord + anomaly_detector.update() |
+| ✅ `AnomalyDetector` 结构体 | P1 | 滑动窗口（50 条）+ EMA 基线更新 + drift_threshold=0.2 |
+| ✅ `CalibrationHistory` 管理 | P1 | VecDeque 环形缓冲，容量 1000，push()/recent(n)/recent_avg_meta_score() |
+| ✅ 单元测试：三信号融合公式计算正确 | P0 | 16 tests, 0 failed |
+| ✅ 单元测试：TTS 分档边界（0.5/0.2/0.05） | P0 | |
+| ✅ 单元测试：loop_detected → SwitchStrategy | P0 | |
+| ✅ 单元测试：cost < 0.05 → AbortOnBudget | P0 | |
+| ✅ 单元测试：anomaly detector 漂移检测 | P1 | |
 | ⬜ 基准测试：evaluate() 延迟 < 100ms（不计 verifier） | P1 | 延后 |
 
 **依赖：** `agent-state`（读 pred_error、recent_pattern、budget_consumed）
@@ -259,62 +261,82 @@ cargo check -p agent-metacognition  # 0 errors, 0 warnings
 
 ---
 
-### 3.4 agent-persona（1-2 天）
+### 3.4 agent-persona ✅（已完成）
+
+> **实施日期：** 2026-06-29 |
+> **测试结果：** 5 passed, 0 failed, 0 warnings
 
 ```
 crates/agent-persona/
 ├── Cargo.toml
+├── README.md               // 完整使用文档 + 关系图/履历/快照示例
 └── src/
-    ├── lib.rs              // Persona + PersonaSnapshot + PersonaContext
-    ├── identity.rs         // Identity（名称/角色/组织/背景）
-    ├── relationships.rs    // RelationshipGraph（AgentId → 关系类型/信任度/协作历史）
-    └── history.rs          // PersonaHistory（关键经历的序列化日志）
+    ├── lib.rs              // Persona + PersonaSnapshot + PersonaContext ✅
+    ├── identity.rs         // Identity（名称/角色/组织/背景/专长）✅
+    ├── relationships.rs    // RelationshipGraph + Relationship + RelationType ✅
+    └── history.rs          // PersonaHistory + PersonaEvent ✅
 ```
 
 | 任务 | 优先级 | 说明 |
 |---|---|---|
-| ☐ `Identity` 结构体 | P0 | `name, role, organization, background, expertise: Vec<String>` |
-| ☐ `RelationshipGraph` 结构体 | P0 | 有向图：AgentId → `Relationship { trust: f32, type: RelationType, collaboration_count: u32 }` |
-| ☐ `PersonaHistory` 结构体 | P1 | `Vec<PersonaEvent>` — 关键经历的序列化日志 |
-| ☐ `Persona` 结构体 | P0 | `version: u64, identity, relationships, history` |
-| ☐ `to_context_injection()` 实现 | P0 | 生成可注入推理上下文的 `PersonaContext` 字符串 |
-| ☐ `update_relationship()` 实现 | P0 | 根据协作结果更新关系图，version += 1 |
-| ☐ `snapshot()` 实现 | P0 | 生成 `PersonaSnapshot` 供 Sidecar 读取 |
-| ☐ MVCC：版本号管理 | P1 | 主进程写入 version += 1，Sidecar 读快照 |
-| ☐ 单元测试：关系更新 + 版本号变更 | P0 | |
-| ☐ 单元测试：snapshot 不阻塞写入 | P1 | |
+| ✅ `Identity` 结构体 | P0 | `name, role, organization, background, expertise` + builder 方法 |
+| ✅ `RelationshipGraph` 结构体 | P0 | HashMap: AgentId → `Relationship { trust, type, collaboration_count }` + `trusted_peers()` |
+| ✅ `PersonaHistory` 结构体 | P1 | `Vec<PersonaEvent>` + `recent(n)` + `by_type()` 筛选 |
+| ✅ `Persona` 结构体 | P0 | `version, identity, relationships, history` |
+| ✅ `to_context_injection()` 实现 | P0 | 生成 `PersonaContext { name, role, expertise, trust_peers }` |
+| ✅ `update_relationship()` 实现 | P0 | version += 1 + `adjust_trust()` |
+| ✅ `snapshot()` 实现 | P0 | 生成 `PersonaSnapshot { version, identity, relationship_count }` |
+| ✅ MVCC：版本号管理 | P1 | 主进程写入 version += 1，Sidecar 读快照 |
+| ✅ 单元测试：关系更新 + 版本号变更 | P0 | 5 tests, 0 failed |
+| ✅ 单元测试：snapshot + trusted_peers | P1 | |
 
-**依赖：** `agent-types-core`（AgentId, CollaborationOutcome）
+**依赖：** `agent-types-core`（AgentId）
+
+**验收标准（已验证）：**
+```bash
+cargo test -p agent-persona   # 5 passed, 0 failed, 0 warnings
+cargo check -p agent-persona  # 0 errors, 0 warnings
+```
 
 ---
 
-### 3.5 agent-character（1-2 天）
+### 3.5 agent-character ✅（已完成）
+
+> **实施日期：** 2026-06-29 |
+> **测试结果：** 6 passed, 0 failed, 0 warnings
 
 ```
 crates/agent-character/
 ├── Cargo.toml
+├── README.md               // 完整使用文档 + 价值观检查/偏好调整示例
 └── src/
-    ├── lib.rs              // Character + CoreValue + Preferences
-    ├── values.rs           // CoreValue + ValueEnforcement + check_core_values()
-    └── preferences.rs      // Preferences + UncertaintyStrategy + OutputStyle
+    ├── lib.rs              // Character + CharacterContext ✅
+    ├── values.rs           // CoreValue + ValueEnforcement + ValueViolation + 3 个预设 ✅
+    └── preferences.rs      // Preferences + UncertaintyStrategy + OutputStyle ✅
 ```
 
 | 任务 | 优先级 | 说明 |
 |---|---|---|
-| ☐ `CoreValue` 结构体 | P0 | `name, description, enforcement: HardConstraint / SoftGuideline` |
-| ☐ `Preferences` 结构体 | P0 | `tool_preference, risk_tolerance, uncertainty_strategy, output_style` |
-| ☐ `Character` 结构体 | P0 | `core_values: Vec<CoreValue>, preferences: Preferences` |
-| ☐ `check_core_values()` 实现 | P0 | 遍历 core_values，HardConstraint 违反 → `Err(ValueViolation)` |
-| ☐ `to_context_injection()` 实现 | P0 | 生成偏好注入字符串（不确定策略/输出风格） |
-| ☐ 内置 CoreValue 预设 | P1 | `privacy_first`, `honesty_first`, `no_destructive_actions` |
-| ☐ `UncertaintyStrategy` 枚举 | P0 | `SearchFirst, AskUserFirst, BestGuessAndConfirm` |
-| ☐ `OutputStyle` 枚举 | P0 | `Concise, Detailed, StepByStep` |
-| ☐ 单元测试：HardConstraint 违反检测 | P0 | |
-| ☐ 单元测试：SoftGuideline 不阻断 | P1 | |
+| ✅ `CoreValue` 结构体 | P0 | `name, description, enforcement, forbidden_keywords` + `violates(action)` |
+| ✅ `Preferences` 结构体 | P0 | `tool_preference, risk_tolerance, uncertainty_strategy, output_style` + builder |
+| ✅ `Character` 结构体 | P0 | `core_values, preferences` |
+| ✅ `check_core_values()` 实现 | P0 | 遍历 core_values，HardConstraint 违反 → `Err(ValueViolation)` |
+| ✅ `to_context_injection()` 实现 | P0 | 生成 `CharacterContext { output_style, uncertainty_strategy, risk_tolerance }` |
+| ✅ 内置 CoreValue 预设 | P1 | `privacy_first()`, `honesty_first()`, `no_destructive_actions()` |
+| ✅ `UncertaintyStrategy` 枚举 | P0 | SearchFirst / AskUserFirst / BestGuessAndConfirm |
+| ✅ `OutputStyle` 枚举 | P0 | Concise / Detailed / StepByStep |
+| ✅ 单元测试：HardConstraint 违反检测 | P0 | 6 tests, 0 failed |
+| ✅ 单元测试：SoftGuideline 不阻断 | P1 | |
 
-**依赖：** `agent-types-core`（Action, ValueViolation）
+**依赖：** `agent-types-core`（Action）
 
-**关键约束：** Character.core_values 不可变（构造后不提供 setter）。
+**关键约束：** Character.core_values 不可变（构造后不提供 setter）。✅
+
+**验收标准（已验证）：**
+```bash
+cargo test -p agent-character   # 6 passed, 0 failed, 0 warnings
+cargo check -p agent-character  # 0 errors, 0 warnings
+```
 
 ---
 

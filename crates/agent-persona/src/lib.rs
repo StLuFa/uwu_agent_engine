@@ -79,3 +79,84 @@ pub struct PersonaSnapshot {
     pub identity: Identity,
     pub relationship_count: usize,
 }
+
+// ===========================================================================
+// 单元测试
+// ===========================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::relationships::{RelationType, Relationship};
+
+    #[test]
+    fn update_relationship_increments_version() {
+        let mut persona = Persona {
+            version: 0,
+            identity: Identity::default(),
+            relationships: RelationshipGraph::new(),
+            history: PersonaHistory::new(),
+        };
+        let old_version = persona.version;
+        persona.update_relationship(AgentId::new(), 0.1);
+        assert_eq!(persona.version, old_version + 1);
+    }
+
+    #[test]
+    fn update_relationship_adjusts_trust() {
+        let mut persona = Persona {
+            version: 0,
+            identity: Identity::default(),
+            relationships: RelationshipGraph::new(),
+            history: PersonaHistory::new(),
+        };
+        let agent = AgentId::new();
+        persona.update_relationship(agent.clone(), 0.3);
+        assert!(persona.relationships.trust_for(&agent) > 0.5);
+        assert_eq!(persona.relationships.len(), 1);
+    }
+
+    #[test]
+    fn snapshot_reflects_current_version() {
+        let persona = Persona {
+            version: 42,
+            identity: Identity::new("test", "tester"),
+            relationships: RelationshipGraph::new(),
+            history: PersonaHistory::new(),
+        };
+        let snap = persona.snapshot();
+        assert_eq!(snap.version, 42);
+        assert_eq!(snap.relationship_count, 0);
+    }
+
+    #[test]
+    fn context_injection_contains_identity() {
+        let persona = Persona {
+            version: 1,
+            identity: Identity::new("Alice", "researcher")
+                .with_expertise(vec!["Rust".into(), "ML".into()]),
+            relationships: RelationshipGraph::new(),
+            history: PersonaHistory::new(),
+        };
+        let ctx = persona.to_context_injection();
+        assert_eq!(ctx.name, "Alice");
+        assert_eq!(ctx.role, "researcher");
+        assert_eq!(ctx.expertise.len(), 2);
+    }
+
+    #[test]
+    fn trusted_peers_filters_by_threshold() {
+        let mut graph = RelationshipGraph::new();
+        graph.upsert(
+            AgentId::new(),
+            Relationship::new(RelationType::Peer, 0.8),
+        );
+        graph.upsert(
+            AgentId::new(),
+            Relationship::new(RelationType::Peer, 0.3),
+        );
+        let peers = graph.trusted_peers();
+        assert_eq!(peers.len(), 1);
+        assert!(peers[0].1 > 0.5);
+    }
+}

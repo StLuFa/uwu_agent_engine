@@ -66,3 +66,83 @@ pub struct CharacterContext {
     pub uncertainty_strategy: UncertaintyStrategy,
     pub risk_tolerance: f32,
 }
+
+// ===========================================================================
+// 单元测试
+// ===========================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use agent_types_core::{Action, ActionParams};
+
+    #[test]
+    fn hard_constraint_blocks_forbidden_action() {
+        let character = Character {
+            core_values: vec![CoreValue::no_destructive_actions()],
+            preferences: Preferences::default(),
+        };
+        let action = Action::new("delete_all", ActionParams::new());
+        assert!(character.check_core_values(&action).is_err());
+    }
+
+    #[test]
+    fn hard_constraint_allows_safe_action() {
+        let character = Character {
+            core_values: vec![CoreValue::no_destructive_actions()],
+            preferences: Preferences::default(),
+        };
+        let action = Action::new("click", ActionParams::new().with("target", "btn"));
+        assert!(character.check_core_values(&action).is_ok());
+    }
+
+    #[test]
+    fn soft_guideline_does_not_block() {
+        let character = Character {
+            core_values: vec![CoreValue::new(
+                "prefer-short",
+                "prefer short responses",
+                ValueEnforcement::SoftGuideline,
+            )],
+            preferences: Preferences::default(),
+        };
+        // SoftGuideline with no forbidden keywords → never blocks
+        let action = Action::new("write_long_text", ActionParams::new());
+        assert!(character.check_core_values(&action).is_ok());
+    }
+
+    #[test]
+    fn privacy_first_blocks_leak() {
+        let character = Character {
+            core_values: vec![CoreValue::privacy_first()],
+            preferences: Preferences::default(),
+        };
+        let action = Action::new("leak_data", ActionParams::new());
+        assert!(character.check_core_values(&action).is_err());
+    }
+
+    #[test]
+    fn honesty_first_blocks_fabricate() {
+        let character = Character {
+            core_values: vec![CoreValue::honesty_first()],
+            preferences: Preferences::default(),
+        };
+        let action = Action::new("fabricate_report", ActionParams::new());
+        assert!(character.check_core_values(&action).is_err());
+    }
+
+    #[test]
+    fn context_injection_contains_preferences() {
+        let character = Character {
+            core_values: vec![],
+            preferences: Preferences::new()
+                .with_output_style(OutputStyle::StepByStep)
+                .with_uncertainty_strategy(UncertaintyStrategy::AskUserFirst)
+                .with_risk_tolerance(0.3),
+        };
+        let ctx = character.to_context_injection();
+        assert_eq!(ctx.output_style, OutputStyle::StepByStep);
+        assert_eq!(ctx.uncertainty_strategy, UncertaintyStrategy::AskUserFirst);
+        assert!((ctx.risk_tolerance - 0.3).abs() < 0.001);
+    }
+}
