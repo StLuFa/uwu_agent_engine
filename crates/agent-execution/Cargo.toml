@@ -2,20 +2,13 @@
 name = "agent-execution"
 version = "0.1.0"
 edition = "2024"
-description = "执行域——MCP 工具调用 + Guard 检查 + WASM 沙箱执行 + 结果收集"
+description = "执行域——MCP 工具调用 + Guard 检查 + 结果收集"
 
 [dependencies]
 agent-types-core = { path = "../agent-types-core" }
-agent-types-ext = { path = "../agent-types-ext" }
 agent-state = { path = "../agent-state" }
-agent-mesh = { path = "../agent-mesh" }
-agent-tools = { path = "../agent-tools" }
-uwu_wasm = { path = "../../pkg/uwu_wasm", optional = true }
 async-trait = "0.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["full"] }
-
-[features]
-default = []
-wasm-sandbox = ["uwu_wasm"]
+chrono = { version = "0.4", features = ["serde"] }
+tokio = { version = "1", features = ["sync", "rt", "macros", "time"] }

@@ -86,16 +86,13 @@ dependencies = [
 name = "agent-execution"
 version = "0.1.0"
 dependencies = [
- "agent-mesh",
  "agent-state",
- "agent-tools",
  "agent-types-core",
- "agent-types-ext",
  "async-trait",
+ "chrono",
  "serde",
  "serde_json",
  "tokio",
- "uwu_wasm",
 ]
 
 [[package]]

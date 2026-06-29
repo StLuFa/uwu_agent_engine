@@ -36,10 +36,11 @@
   阶段 3a    agent-perception（感知域）
   阶段 3b    agent-memory（统一记忆）
   阶段 3c    agent-reasoning（推理域）
+  阶段 3d    agent-execution（执行域）
   阶段 W     agent-wiki（多 Agent 协作知识库）
 
 待 实 施 ─────────────────────────────────────────────────────────────────
-  阶段 3d-e  能力域剩余（execution / tools）
+  阶段 3e    能力域剩余（tools）
   阶段 4    ██████████████░░░░░░░░░░  Session 主循环（1-2 周）
   阶段 5    ██████████████░░░░░░░░░░  Task + Collaboration（1-2 周）
   阶段 6    ██████████░░░░░░░░░░░░░░  LearnNode（1 周）
@@ -550,27 +551,38 @@ cargo test -p agent-reasoning   # 12 passed, 0 failed, 0 warnings
 cargo check -p agent-reasoning  # 0 errors, 0 warnings
 ```
 
-### 5.4 agent-execution（2-3 天）
+### 5.4 agent-execution ✅（已完成）
+
+> **实施日期：** 2026-06-29 |
+> **测试结果：** 9 passed, 0 failed, 0 warnings |
+> **关联：** 移除了未使用的 agent-types-ext/agent-mesh/agent-tools/uwu_wasm 依赖；需 tokio time feature
 
 ```
 crates/agent-execution/
 ├── Cargo.toml
+├── README.md               // 完整使用文档 + 三种输出格式
 └── src/
-    ├── lib.rs              // ActionExecutor
-    ├── mcp.rs              // MCP 工具调用
-    ├── wasm_sandbox.rs     // uwu_wasm 沙箱执行不可信代码
-    └── output.rs           // 输出格式化
+    ├── lib.rs              // ExecutionResult + Executor trait + ActionExecutor + tests ✅
+    ├── mcp.rs              // McpClient + McpResult + tests ✅
+    └── output.rs           // OutputFormatter + OutputFormat + tests ✅
 ```
 
 | 任务 | 优先级 | 说明 |
 |---|---|---|
-| ☐ `Executor` trait 定义 | P0 | `async fn execute(action: Action) -> ExecutionResult` |
-| ☐ `ActionExecutor` 结构体 | P0 | 调用链：Guard 检查 → MCP 工具 / WASM 沙箱 → 收集结果 |
-| ☐ MCP 工具调用 | P0 | HTTP/gRPC 调用 MCP Server |
-| ☐ WASM 沙箱执行 | P2 | 通过 uwu_wasm 安全执行不可信代码 |
-| ☐ 注册为 visual_script NodeDefinition | P0 | `"execution.act"`：Impure + Async |
-| ☐ 单元测试：MCP 工具调用 mock | P0 | |
-| ☐ 单元测试：WASM 沙箱执行（可选） | P2 | |
+| ☑ `Executor` trait 定义 | P0 | `async fn execute(action, state) -> ExecutionResult` |
+| ☑ `ActionExecutor` 结构体 | P0 | `execute_action()` + `execute_batch()` + with_mcp/with_max_parallel |
+| ☑ MCP 工具调用 | P0 | `McpClient`: register_tool + call（mock）+ 已注册/未注册分支 |
+| ☑ OutputFormatter | P0 | PlainText / Json / Markdown 三种输出格式 |
+| ⬜ WASM 沙箱执行 | P2 | 延后（需 uwu_wasm feature flag） |
+| ⬜ 注册为 visual_script NodeDefinition | P0 | 延后 |
+| ☑ 单元测试：MCP 工具调用 mock | P0 | 9 tests, 0 failed |
+| ⬜ 单元测试：WASM 沙箱执行 | P2 | 延后 |
+
+**验收标准（已验证）：**
+```bash
+cargo test -p agent-execution   # 9 passed, 0 failed, 0 warnings
+cargo check -p agent-execution  # 0 errors, 0 warnings
+```
 
 ### 5.5 FlowGraph + FlowEngine（2-3 天）
 
