@@ -73,7 +73,7 @@ impl ActionExecutor {
         // 1. Guard 检查（阶段 7 实现）
         // 2. MCP 调用（如果配置了）
         let (success, output) = if let Some(ref mcp) = self.mcp_client {
-            let result = mcp.call(action).await;
+            let result = mcp.call_action(action).await;
             let out = serde_json::to_string(&result.output).unwrap_or_default();
             (result.success, out)
         } else {

@@ -63,6 +63,7 @@ name = "agent-execution"
 version = "0.1.0"
 dependencies = [
  "agent-state",
+ "agent-tools",
  "agent-types-core",
  "anyhow",
  "async-trait",
