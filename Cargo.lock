@@ -200,13 +200,11 @@ name = "agent-session"
 version = "0.1.0"
 dependencies = [
  "agent-character",
- "agent-mesh",
  "agent-metacognition",
  "agent-persona",
  "agent-reaction",
  "agent-state",
  "agent-types-core",
- "agent-types-ext",
  "async-trait",
  "chrono",
  "serde",

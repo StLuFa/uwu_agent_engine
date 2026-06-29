@@ -1,6 +1,6 @@
 //! # agent-session
 //!
-//! 对话域 —— 持有 Agent 五维 + MVCC 并发 + 能力注册表 + 编排 process_turn 主循环。
+//! 对话域 —— 持有 Agent 五维 + 编排 process_turn 主循环。
 //!
 //! Session 是整个 Agent 引擎的顶层入口：一个用户会话 = 一个 Session 实例。
 
@@ -14,10 +14,9 @@ pub use intent::IntentTracker;
 pub use snapshot::SessionSnapshot;
 pub use turn::ConversationTurn;
 
-use agent_character::Character;
-use agent_mesh::AgentMesh;
+use agent_character::{Character, CharacterContext};
 use agent_metacognition::{Metacognition, MetaAction};
-use agent_persona::Persona;
+use agent_persona::{Persona, PersonaContext};
 use agent_reaction::{Reaction, ReactionLayer};
 use agent_state::AgentState;
 use agent_types_core::AgentId;
@@ -36,27 +35,7 @@ impl SessionId {
     }
 }
 
-/// 能力注册表 —— 运行时动态注册 Agent 能力域
-pub struct CapabilityRegistry {
-    // 能力域将在阶段 3 中通过 trait object 注册
-    // perceivers: Vec<Box<dyn Perceiver>>,
-    // reasoners: Vec<Box<dyn Reasoner>>,
-    // executors: Vec<Box<dyn Executor>>,
-}
-
-impl CapabilityRegistry {
-    pub fn new() -> Self {
-        Self {}
-    }
-}
-
-impl Default for CapabilityRegistry {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Session —— 用户对话会话，持有五维 + 能力注册表
+/// Session —— 用户对话会话，持有五维 + 对话管理
 pub struct Session {
     pub session_id: SessionId,
     pub user_id: String,
@@ -65,19 +44,14 @@ pub struct Session {
     // 五维
     pub reaction: Arc<ReactionLayer>,
     pub state: AgentState,
-    pub metacognition: Arc<Metacognition>,
+    pub metacognition: Metacognition,
     pub persona: Persona,
     pub character: Arc<Character>,
-
-    // 事件网格
-    pub mesh: Arc<AgentMesh>,
-
-    // 能力注册
-    pub capability_registry: CapabilityRegistry,
 
     // 对话管理
     pub history: ConversationHistory,
     pub intent_tracker: IntentTracker,
+    pub turn_count: u64,
 
     // 元数据
     pub created_at: DateTime<Utc>,
@@ -87,39 +61,92 @@ pub struct Session {
 impl Session {
     /// 处理一个对话轮次 —— 五段式主循环
     pub async fn process_turn(&mut self, raw_input: &str) -> TurnResult {
+        self.turn_count += 1;
         let input = self.enrich_input(raw_input);
 
         // 1. Reaction 拦截
         if let Reaction::Hit(action) = self.reaction.intercept(&self.state).await {
-            return self.execute_reaction(action).await;
+            let output = self.execute_reaction(action);
+            self.record_turn(raw_input, &output, 1.0, "Hit");
+            return output;
         }
 
         // 2. FlowGraph: Perception → Memory → Reasoning → Execution
-        //    (阶段 3 实现)
-        let decision = self.run_flowgraph(&input).await;
+        let decision = self.run_flowgraph(&input);
 
         // 3. Metacognition 评估
-        let assessment = self.metacognition.evaluate(&self.state, &decision).await;
+        let assessment = self
+            .metacognition
+            .evaluate(&self.state, &decision.command)
+            .await;
 
         // 4. MetaAction 分支处理
+        let meta_action_str = format!("{:?}", assessment.suggested_action);
         match assessment.suggested_action {
             MetaAction::Proceed => {}
-            MetaAction::RetryDecision => { /* TODO: 回滚 State，重新推理 */ }
-            MetaAction::RequestClarification => { /* TODO: 暂停，向用户提问 */ }
-            MetaAction::SwitchStrategy => { /* TODO: 切换推理模式 */ }
-            MetaAction::DelegateToHuman => { /* TODO: 升级 */ }
-            MetaAction::AbortOnBudget => { /* TODO: 预算耗尽，终止 */ }
+            MetaAction::RetryDecision => {
+                // Rollback state and re-reason
+                let checkpoint = self.state.checkpoint();
+                let retry_decision = self.run_flowgraph(&input);
+                self.state = AgentState::rollback(&checkpoint);
+                let output = self.execute_and_update(retry_decision);
+                self.record_turn(raw_input, &output, 0.0, &meta_action_str);
+                return output;
+            }
+            MetaAction::RequestClarification => {
+                let output = TurnResult {
+                    output: TurnOutput {
+                        content: "I need more information. Could you clarify?".into(),
+                        tokens_used: 0,
+                    },
+                };
+                self.record_turn(raw_input, &output, 0.0, &meta_action_str);
+                return output;
+            }
+            MetaAction::SwitchStrategy => {
+                // Switch reasoning strategy (degraded mode)
+                let degraded_decision = self.run_flowgraph_degraded(&input);
+                let output = self.execute_and_update(degraded_decision);
+                self.record_turn(raw_input, &output, 0.0, &meta_action_str);
+                return output;
+            }
+            MetaAction::DelegateToHuman => {
+                let output = TurnResult {
+                    output: TurnOutput {
+                        content: "Escalating to human operator...".into(),
+                        tokens_used: 0,
+                    },
+                };
+                self.record_turn(raw_input, &output, 0.0, &meta_action_str);
+                return output;
+            }
+            MetaAction::AbortOnBudget => {
+                let output = TurnResult {
+                    output: TurnOutput {
+                        content: "Budget exhausted. Task terminated.".into(),
+                        tokens_used: 0,
+                    },
+                };
+                self.record_turn(raw_input, &output, 0.0, &meta_action_str);
+                return output;
+            }
         }
 
-        // 5. 执行 + 校准
-        let result = self.execute_and_update(decision).await;
+        // 5. 执行 + 收集结果
+        let result = self.execute_and_update(decision);
 
         // 6. Metacognition 在线校准
-        //    (阶段 3 实现)
-        // self.metacognition.calibrate_with_outcome(&mut self.state, &result.actual_state);
+        let current_state = self.state.clone();
+        self.metacognition.calibrate_with_outcome(
+            &mut self.state,
+            &current_state,
+            &assessment.calibration,
+            assessment.meta_score,
+        );
 
         self.last_active_at = Utc::now();
-        result.output
+        self.record_turn(raw_input, &result, assessment.meta_score, &meta_action_str);
+        result
     }
 
     fn enrich_input(&self, raw: &str) -> EnrichedInput {
@@ -130,43 +157,71 @@ impl Session {
         }
     }
 
-    async fn execute_reaction(&self, action: agent_types_core::Action) -> TurnResult {
-        // Reaction 命中：直接执行，不经过 FlowGraph/Metacognition
+    fn execute_reaction(&self, action: agent_types_core::Action) -> TurnResult {
         TurnResult {
             output: TurnOutput {
-                content: format!("reaction: {:?}", action),
+                content: format!("reaction: {}", action.command),
                 tokens_used: 0,
             },
         }
     }
 
-    async fn run_flowgraph(&self, input: &EnrichedInput) -> agent_reasoning::Decision {
-        // TODO: 阶段 3 实现 —— 通过 FlowGraph + visual_script VM 执行
-        agent_reasoning::Decision {
-            actions: vec![],
-            scores: vec![],
-            reasoning: "not yet implemented".into(),
-        }
+    fn run_flowgraph(&self, input: &EnrichedInput) -> agent_types_core::Action {
+        // Mock: simulate P→M→R→E pipeline
+        let _ = input;
+        agent_types_core::Action::new(
+            "respond",
+            agent_types_core::ActionParams::new().with("text", "processed"),
+        )
     }
 
-    async fn execute_and_update(&mut self, decision: agent_reasoning::Decision) -> ExecutionOutcome {
-        // TODO: 阶段 3+ 实现 —— Guard 检查 + 执行 + 修正 State
-        ExecutionOutcome {
+    fn run_flowgraph_degraded(&self, input: &EnrichedInput) -> agent_types_core::Action {
+        let _ = input;
+        agent_types_core::Action::new(
+            "respond_degraded",
+            agent_types_core::ActionParams::new().with("text", "degraded mode"),
+        )
+    }
+
+    fn execute_and_update(&mut self, action: agent_types_core::Action) -> TurnResult {
+        self.state.apply_action(&action);
+        TurnResult {
             output: TurnOutput {
-                content: decision.reasoning,
+                content: format!("executed: {}", action.command),
                 tokens_used: 0,
             },
         }
+    }
+
+    fn record_turn(
+        &mut self,
+        user_input: &str,
+        result: &TurnResult,
+        _meta_score: f32,
+        meta_action: &str,
+    ) {
+        let turn = ConversationTurn::new(
+            self.turn_count,
+            user_input,
+            &result.output.content,
+            result.output.tokens_used,
+            meta_action,
+        );
+        // Intent tracking
+        self.intent_tracker
+            .update(self.intent_tracker.infer(user_input));
+        self.history.push(turn);
     }
 
     /// 生成快照供 Sidecar 消费
     pub fn snapshot(&self) -> SessionSnapshot {
-        SessionSnapshot {
-            session_id: self.session_id,
-            state_snapshot: self.state.snapshot(),
-            persona_snapshot: self.persona.snapshot(),
-            taken_at: Utc::now(),
-        }
+        SessionSnapshot::new(
+            self.session_id.0.to_string(),
+            self.state.snapshot(),
+            self.persona.version,
+            self.history.len(),
+            self.history.total_tokens(),
+        )
     }
 }
 
@@ -174,8 +229,8 @@ impl Session {
 #[derive(Debug, Clone)]
 pub struct EnrichedInput {
     pub raw: String,
-    pub persona_context: agent_persona::PersonaContext,
-    pub character_context: agent_character::CharacterContext,
+    pub persona_context: PersonaContext,
+    pub character_context: CharacterContext,
 }
 
 /// 轮次输出
@@ -191,8 +246,96 @@ pub struct TurnResult {
     pub output: TurnOutput,
 }
 
-/// 执行结果
-#[derive(Debug, Clone)]
-pub struct ExecutionOutcome {
-    pub output: TurnOutput,
+// ===========================================================================
+// 单元测试
+// ===========================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use agent_character::{Character, Preferences};
+    use agent_metacognition::{CalibrationModel, CalibrationResult, Metacognition};
+    use agent_persona::{Identity, PersonaHistory, RelationshipGraph};
+    use agent_reaction::ReactionLayer;
+    use agent_state::AgentState;
+    use async_trait::async_trait;
+    use chrono::Duration;
+
+    struct MockCalibrator;
+    #[async_trait]
+    impl CalibrationModel for MockCalibrator {
+        async fn calibrate(&self, _state: &AgentState, _text: &str) -> CalibrationResult {
+            CalibrationResult {
+                raw_confidence: 0.9,
+                calibrated_confidence: 0.9,
+                should_retry: false,
+                reasoning: "ok".into(),
+            }
+        }
+    }
+
+    fn make_session() -> Session {
+        let reaction = Arc::new(ReactionLayer::builder().build());
+        let metacog = Metacognition::new(
+            Box::new(MockCalibrator),
+            10_000,
+            Duration::seconds(120),
+            5,
+        );
+        Session {
+            session_id: SessionId::new(),
+            user_id: "user-1".into(),
+            agent_id: AgentId::new(),
+            reaction,
+            state: AgentState::new(),
+            metacognition: metacog,
+            persona: Persona {
+                version: 0,
+                identity: Identity::default(),
+                relationships: RelationshipGraph::new(),
+                history: PersonaHistory::new(),
+            },
+            character: Arc::new(Character {
+                core_values: vec![],
+                preferences: Preferences::default(),
+            }),
+            history: ConversationHistory::new(),
+            intent_tracker: IntentTracker::new(),
+            turn_count: 0,
+            created_at: Utc::now(),
+            last_active_at: Utc::now(),
+        }
+    }
+
+    #[tokio::test]
+    async fn process_turn_proceed() {
+        let mut session = make_session();
+        let result = session.process_turn("hello").await;
+        assert!(!result.output.content.is_empty());
+        assert!(session.turn_count > 0);
+    }
+
+    #[tokio::test]
+    async fn process_turn_updates_history() {
+        let mut session = make_session();
+        session.process_turn("search for docs").await;
+        assert_eq!(session.history.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn process_turn_updates_intent() {
+        let mut session = make_session();
+        session.process_turn("find the file").await;
+        assert_eq!(
+            session.intent_tracker.current_intent,
+            Some("search".into())
+        );
+    }
+
+    #[tokio::test]
+    async fn snapshot_contains_state() {
+        let session = make_session();
+        let snap = session.snapshot();
+        assert_eq!(snap.turn_count, 0);
+    }
 }

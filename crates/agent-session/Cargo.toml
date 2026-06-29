@@ -2,12 +2,10 @@
 name = "agent-session"
 version = "0.1.0"
 edition = "2024"
-description = "对话域——持有五维 + MVCC + 能力注册表 + 编排 process_turn 主循环"
+description = "对话域 —— 持有五维 + 编排 process_turn 主循环"
 
 [dependencies]
 agent-types-core = { path = "../agent-types-core" }
-agent-types-ext = { path = "../agent-types-ext" }
-agent-mesh = { path = "../agent-mesh" }
 agent-state = { path = "../agent-state" }
 agent-reaction = { path = "../agent-reaction" }
 agent-metacognition = { path = "../agent-metacognition" }
@@ -18,4 +16,4 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["sync", "rt", "macros"] }
