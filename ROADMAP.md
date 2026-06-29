@@ -27,9 +27,10 @@
 ```
 已 完 成 ─────────────────────────────────────────────────────────────────
   阶段 0a-e  基础设施（5 个 crate）
+  阶段 1a    agent-state + agent-types-core（Agent 状态维度）
 
 待 实 施 ─────────────────────────────────────────────────────────────────
-  阶段 1    ████████████████████░░░░  五维（2-3 周）
+  阶段 1b-e  五维剩余（reaction / metacognition / persona / character）
   阶段 2    ██████████░░░░░░░░░░░░░  agent-mesh 包装（1 周）
   阶段 3    ████████████████████░░░░  能力域 + FlowGraph（2-3 周）
   阶段 4    ██████████████░░░░░░░░░░  Session 主循环（1-2 周）
@@ -95,52 +96,57 @@
 > **依赖：** 阶段 0（无需阶段 2+）
 > **目标：** agent-state / agent-reaction / agent-metacognition / agent-persona / agent-character 五个 crate 独立可编译、独立可测试
 
-### 3.1 agent-state（2-3 天）
+### 3.1 agent-state ✅（已完成）
+
+> **实施日期：** 2026-06-29 |
+> **测试结果：** 21 passed, 0 failed, 0 warnings |
+> **关联：** agent-types-core（Action/ActionParams/ActionStatus/AgentId/Uncertain/Layer 同步实现）
 
 ```
 crates/agent-state/
 ├── Cargo.toml
+├── README.md             // 完整使用文档 + 示例
 └── src/
-    ├── lib.rs              // re-exports
-    ├── short.rs            // ShortTermWS
-    ├── mid.rs              // MidTermWS + InteractionPattern
-    ├── long.rs             // LongTermWS + TaskProgress + BudgetConsumed
-    ├── state.rs            // AgentState + fork() + snapshot() + apply_action()
-    ├── evaluate.rs         // evaluate() → StateScore
-    ├── diff.rs             // StateDiff + compute_pred_error() + update_pred_error()
-    ├── checkpoint.rs       // StateCheckpoint + checkpoint() + rollback()
-    ├── mvcc.rs             // StateSnapshot + MVCC 版本号管理
-    └── confidence.rs       // ConfidenceMap
+    ├── lib.rs              // re-exports ✅
+    ├── short.rs            // ShortTermWS + ContextDescriptor + Hypothesis ✅
+    ├── mid.rs              // MidTermWS + ActionRecord + Fact + Constraint ✅
+    ├── long.rs             // LongTermWS + TaskProgress + BudgetConsumed ✅
+    ├── state.rs            // AgentState + StateId + fork/snapshot/apply ✅
+    ├── evaluate.rs         // evaluate() → StateScore ✅
+    ├── diff.rs             // StateDiff + compute_pred_error + update_pred_error ✅
+    ├── checkpoint.rs       // StateCheckpoint + checkpoint/rollback ✅
+    ├── mvcc.rs             // StateSnapshot + MVCC versioning ✅
+    └── confidence.rs       // ConfidenceMap ✅
 ```
 
 | 任务 | 优先级 | 说明 |
 |---|---|---|
-| ☐ `ShortTermWS` 定义 | P0 | `version`, `current_context`, `last_action`, `last_observation`, `pending_hypotheses` |
-| ☐ `MidTermWS` 定义 | P0 | `version`, `action_history`, `known_facts`, `recent_pattern`, `active_constraints` |
-| ☐ `LongTermWS` 定义 | P0 | `version`, `task_progress`, `accumulated_pred_error`, `budget_consumed` |
-| ☐ `AgentState` 结构体 | P0 | 组合三层 WS + state_id + timestamp + confidence + parent_state_id |
-| ☐ `fork()` 实现 | P0 | 完整 clone + 新 state_id + 链 parent_state_id |
-| ☐ `apply_action()` 实现 | P0 | short_term.version += 1 + 更新 current_context |
-| ☐ `snapshot()` 实现 | P0 | 生成 StateSnapshot + 计算全局版本号 |
-| ☐ `apply_hypothetical()` 实现 | P1 | 沙盒推演：action 写入 action_history（标记 Hypothetical） |
-| ☐ `evaluate()` 实现 | P0 | 综合评分：事实一致性 + 目标对齐 + 约束满足 |
-| ☐ `diff()` 实现 | P0 | 两份 State 差异：facts_added/modified/removed |
-| ☐ `compute_pred_error()` 实现 | P0 | JEPA 预测误差：diff 规模 / total_facts |
-| ☐ `update_pred_error()` 实现 | P0 | EMA 更新：0.3×err + 0.7×accumulated |
-| ☐ `checkpoint()` + `rollback()` | P1 | 序列化当前 State → 回滚 |
-| ☐ `InteractionPattern` 检测 | P1 | recent_success_rate < 0.3 连续 5 步 → "loop_detected" |
-| ☐ 单元测试：fork 不修改原 State | P0 | |
-| ☐ 单元测试：apply_action 版本号递增 | P0 | |
-| ☐ 单元测试：snapshot 版本号 = max(三层) | P0 | |
-| ☐ 单元测试：pred_error EMA 收敛 | P0 | |
-| ☐ 单元测试：checkpoint → rollback 往返 | P1 | |
+| ✅ `ShortTermWS` 定义 | P0 | `version`, `current_context`, `last_action`, `last_observation`, `pending_hypotheses` |
+| ✅ `MidTermWS` 定义 | P0 | `version`, `action_history`, `known_facts`, `recent_pattern`, `active_constraints` |
+| ✅ `LongTermWS` 定义 | P0 | `version`, `task_progress`, `accumulated_pred_error`, `budget_consumed` |
+| ✅ `AgentState` 结构体 | P0 | 组合三层 WS + state_id + timestamp + confidence + parent_state_id |
+| ✅ `fork()` 实现 | P0 | 完整 clone + 新 state_id + 链 parent_state_id |
+| ✅ `apply_action()` 实现 | P0 | short_term.version += 1 + 更新 current_context |
+| ✅ `snapshot()` 实现 | P0 | 生成 StateSnapshot + 计算全局版本号 |
+| ✅ `apply_hypothetical()` 实现 | P1 | 沙盒推演：action 写入 action_history（标记 Hypothetical） |
+| ✅ `evaluate()` 实现 | P0 | 综合评分：事实一致性 + 目标对齐 + 约束满足 |
+| ✅ `diff()` 实现 | P0 | 两份 State 差异：facts_added/modified/removed |
+| ✅ `compute_pred_error()` 实现 | P0 | JEPA 预测误差：diff 规模 / total_facts |
+| ✅ `update_pred_error()` 实现 | P0 | EMA 更新：0.3×err + 0.7×accumulated |
+| ✅ `checkpoint()` + `rollback()` | P1 | 序列化当前 State → 回滚 |
+| ✅ `InteractionPattern` 检测 | P1 | recent_success_rate < 0.3 连续 5 步 → `is_failure_loop()` / `is_loop_detected()` |
+| ✅ 单元测试：fork 不修改原 State | P0 | 21 tests, 0 failed |
+| ✅ 单元测试：apply_action 版本号递增 | P0 | |
+| ✅ 单元测试：snapshot 版本号 = max(三层) | P0 | |
+| ✅ 单元测试：pred_error EMA 收敛 | P0 | |
+| ✅ 单元测试：checkpoint → rollback 往返 | P1 | |
 
 **关键 Trait：** 无外部 trait 依赖。AgentState 是纯数据结构 + 方法。
 
-**验收标准：**
+**验收标准（已验证）：**
 ```bash
-cargo test -p agent-state  # 全部通过
-cargo build -p agent-state  # 无 warning
+cargo test -p agent-state   # 21 passed, 0 failed, 0 warnings
+cargo check -p agent-state  # 0 errors, 0 warnings
 ```
 
 ---

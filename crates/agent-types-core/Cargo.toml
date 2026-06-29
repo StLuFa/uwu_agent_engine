@@ -6,5 +6,7 @@ description = "基础类型 —— AgentId, Action, Layer<I,O>, Uncertain<T> 等
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
+async-trait = "0.1"
