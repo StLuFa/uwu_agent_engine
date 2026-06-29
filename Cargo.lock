@@ -29,17 +29,10 @@ dependencies = [
 name = "agent-collaboration"
 version = "0.1.0"
 dependencies = [
- "agent-crdt",
- "agent-mesh",
- "agent-persona",
- "agent-state",
  "agent-types-core",
- "agent-types-ext",
  "async-trait",
  "chrono",
- "dashmap 6.2.1",
  "serde",
- "serde_json",
  "tokio",
  "uuid",
 ]
@@ -281,14 +274,10 @@ dependencies = [
 name = "agent-task"
 version = "0.1.0"
 dependencies = [
- "agent-mesh",
- "agent-state",
  "agent-types-core",
- "agent-types-ext",
  "chrono",
  "serde",
  "serde_json",
- "tokio",
  "uuid",
 ]
 

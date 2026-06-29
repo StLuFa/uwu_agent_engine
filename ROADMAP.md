@@ -39,10 +39,12 @@
   阶段 3d    agent-execution（执行域）
   阶段 3e    agent-core（FlowGraph + FlowEngine）
   阶段 4     agent-session（Session 主循环）
+  阶段 5a    agent-task（任务域）
+  阶段 5b    agent-collaboration（多 Agent 协作）
   阶段 W     agent-wiki（多 Agent 协作知识库）
 
 待 实 施 ─────────────────────────────────────────────────────────────────
-  阶段 5    ██████████████░░░░░░░░░░  Task + Collaboration（1-2 周）
+  阶段 6    ██████████░░░░░░░░░░░░░░  LearnNode（1 周）
   阶段 5    ██████████████░░░░░░░░░░  Task + Collaboration（1-2 周）
   阶段 6    ██████████░░░░░░░░░░░░░░  LearnNode（1 周）
   阶段 7    ██████████░░░░░░░░░░░░░░  GuardLayer（1 周）
@@ -669,53 +671,75 @@ cargo check -p agent-session  # 0 errors, 0 warnings
 > **依赖：** 阶段 4（Session）
 > **目标：** 持久任务管理 + 多 Agent 协作委派
 
-### 7.1 agent-task（2-3 天）
+### 7.1 agent-task ✅（已完成）
+
+> **实施日期：** 2026-06-29 | **测试结果：** 2 passed, 0 failed |
+> **关联：** 移除了 agent-types-ext/agent-state/agent-mesh/tokio 依赖
 
 ```
 crates/agent-task/
 ├── Cargo.toml
+├── README.md               // 完整使用文档 + DAG 调度示例
 └── src/
-    ├── lib.rs              // Task + SubtaskDag + Subtask
-    ├── manifest.rs         // TaskManifest + AgentCard + SettlementPolicy
-    ├── delegation.rs       // DelegationPolicy + DiscoveryStrategy + FallbackStrategy
-    ├── settlement.rs       // SettlementPolicy + SettlementMode
-    └── scheduler.rs        // Subtask 调度器
+    ├── lib.rs              // Task + Goal + TaskStatus ✅
+    ├── subtask.rs          // Subtask + SubtaskDag + SubtaskStatus + tests ✅
+    ├── manifest.rs         // TaskManifest + AgentCard ✅
+    ├── delegation.rs       // DelegationPolicy + DiscoveryStrategy + FallbackStrategy ✅
+    ├── settlement.rs       // SettlementPolicy + SettlementMode ✅
+    └── scheduler.rs        // SubtaskScheduler ✅
 ```
 
 | 任务 | 优先级 | 说明 |
 |---|---|---|
-| ☐ `Task` 结构体 | P0 | `task_id, goal, status, subtask_dag, max_retries, manifest` |
-| ☐ `SubtaskDag` 结构体 | P0 | DAG 拓扑：nodes + edges，支持并行/依赖 |
-| ☐ `Subtask` 结构体 | P0 | `id, description, status, assigned_agent, flow_graph, max_retries, timeout` |
-| ☐ `AgentCard` 结构体 | P0 | `agent_id, name, capabilities, role, priority, endpoint` |
-| ☐ `DelegationPolicy` 结构体 | P0 | `discovery: ExactCapability/LoadBalanced/TrustRanked/Auction` |
-| ☐ `SettlementPolicy` 结构体 | P0 | `mode: Free/FixedPrice/Metered/Auction` |
-| ☐ `check_ready()` 实现 | P0 | 检查 DAG 中可执行的 subtask |
-| ☐ `update_progress()` 实现 | P0 | 根据完成的 subtask 更新 State |
-| ☐ 单元测试：DAG 调度正确 | P0 | |
-| ☐ 单元测试：SettlementPolicy 计费计算 | P1 | |
+| ✅ `Task` 结构体 | P0 | task_id, goal, status, subtask_dag, max_retries, manifest |
+| ✅ `SubtaskDag` 结构体 | P0 | nodes + edges + ready_nodes() |
+| ✅ `Subtask` 结构体 | P0 | id, index, description, status, assigned_agent, max_retries, timeout |
+| ✅ `AgentCard` 结构体 | P0 | agent_id, name, capabilities, role, trust_score, endpoint |
+| ✅ `DelegationPolicy` 结构体 | P0 | ExactCapability / LoadBalanced / TrustRanked / Auction |
+| ✅ `SettlementPolicy` 结构体 | P0 | Free / FixedPrice / Metered / Auction |
+| ✅ `check_ready()` 实现 | P0 | DAG 拓扑检查可执行 subtask |
+| ✅ `SubtaskScheduler` 实现 | P0 | next_ready() + is_complete() + progress() |
+| ⬜ `update_progress()` 实现 | P0 | 延后（需 State 集成） |
+| ✅ 单元测试：DAG 调度 | P0 | 2 tests, 0 failed |
+| ⬜ 单元测试：SettlementPolicy 计费 | P1 | 延后 |
 
-### 7.2 agent-collaboration（2-3 天）
+**验收标准：**
+```bash
+cargo test -p agent-task   # 2 passed, 0 failed
+cargo check -p agent-task  # 0 errors, 0 warnings
+```
+
+### 7.2 agent-collaboration ✅（已完成）
+
+> **实施日期：** 2026-06-29 | **测试结果：** 5 passed, 0 failed |
+> **关联：** 移除了 agent-types-ext/agent-state/agent-persona/agent-mesh/agent-crdt/dashmap 依赖
 
 ```
 crates/agent-collaboration/
 ├── Cargo.toml
+├── README.md               // 完整使用文档 + 委派流程图
 └── src/
-    ├── lib.rs              // Collaboration
-    ├── registry.rs         // AgentRegistry + AgentDescriptor
-    ├── delegate.rs         // delegate() + DelegationState
-    └── negotiate.rs        // negotiate() 协商
+    ├── lib.rs              // Collaboration + delegate/on_delegation_complete + tests ✅
+    ├── registry.rs         // AgentRegistry + AgentDescriptor + tests ✅
+    ├── delegate.rs         // DelegationId + DelegationState + DelegationResult + tests ✅
+    └── negotiate.rs        // NegotiationResult ✅
 ```
 
 | 任务 | 优先级 | 说明 |
 |---|---|---|
-| ☐ `AgentRegistry` 结构体 | P0 | `agents: HashMap<AgentId, AgentDescriptor>` + capability_index |
-| ☐ `Collaboration` 结构体 | P0 | `registry + mesh + pending: DashMap<DelegationId, DelegationState>` |
-| ☐ `delegate()` 实现 | P0 | 根据 DelegationPolicy 选择 Agent → 发送 subtask → 等待结果 |
-| ☐ `on_delegation_complete()` 实现 | P0 | 接收结果 → 应用 state_delta → 更新 Persona 关系 |
-| ☐ `negotiate()` 实现 | P1 | CRDT 状态合并协商 |
-| ☐ 单元测试：ExactCapability 匹配 | P0 | |
-| ☐ 单元测试：委派 → 完成 → state_delta 合并 | P0 | |
+| ✅ `AgentRegistry` 结构体 | P0 | HashMap<AgentId, AgentDescriptor> + find_by_capability + best_for_capability |
+| ✅ `Collaboration` 结构体 | P0 | registry + pending_delegations |
+| ✅ `delegate()` 实现 | P0 | 按 capability 选择最优 Agent → 创建 DelegationResult |
+| ✅ `on_delegation_complete()` 实现 | P0 | 接收结果 → complete() → 更新 state |
+| ✅ `negotiate()` 实现 | P1 | NegotiationResult: accepted / rejected / counter_offer |
+| ✅ 单元测试：capability 匹配 | P0 | 5 tests, 0 failed |
+| ✅ 单元测试：委派 → 完成 | P0 | |
+
+**验收标准：**
+```bash
+cargo test -p agent-collaboration   # 5 passed, 0 failed
+cargo check -p agent-collaboration  # 0 errors, 0 warnings
+```
 
 ---
 

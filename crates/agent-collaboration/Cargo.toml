@@ -2,19 +2,12 @@
 name = "agent-collaboration"
 version = "0.1.0"
 edition = "2024"
-description = "多 Agent 协作——委派/协商/CRDT 合并 + AgentRegistry"
+description = "多 Agent 协作 —— 委派/协商 + AgentRegistry"
 
 [dependencies]
 agent-types-core = { path = "../agent-types-core" }
-agent-types-ext = { path = "../agent-types-ext" }
-agent-state = { path = "../agent-state" }
-agent-persona = { path = "../agent-persona" }
-agent-mesh = { path = "../agent-mesh" }
-agent-crdt = { path = "../agent-crdt" }
-async-trait = "0.1"
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
-tokio = { version = "1", features = ["full"] }
-dashmap = "6"
+async-trait = "0.1"
+tokio = { version = "1", features = ["sync", "rt", "macros"] }

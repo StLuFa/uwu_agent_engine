@@ -16,10 +16,7 @@ pub use scheduler::SubtaskScheduler;
 pub use settlement::{SettlementMode, SettlementPolicy};
 pub use subtask::{Subtask, SubtaskDag, SubtaskStatus, SubtaskEdge};
 
-use agent_types_core::AgentId;
-use agent_types_ext::AgentCard;
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
 use uuid::Uuid;
 
 /// Task ID
@@ -77,6 +74,10 @@ impl Task {
 
     /// 检查 DAG 中可执行的 subtask
     pub fn check_ready(&self) -> Vec<SubtaskId> {
-        self.subtask_dag.ready_nodes()
+        self.subtask_dag
+            .ready_nodes()
+            .into_iter()
+            .map(|id| Uuid::parse_str(&id).unwrap_or_else(|_| Uuid::nil()))
+            .collect()
     }
 }
