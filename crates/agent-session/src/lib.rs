@@ -52,6 +52,7 @@ pub struct Session {
     pub history: ConversationHistory,
     pub intent_tracker: IntentTracker,
     pub turn_count: u64,
+    pub checkpoints: Vec<agent_state::StateCheckpoint>,
 
     // 元数据
     pub created_at: DateTime<Utc>,
@@ -59,6 +60,11 @@ pub struct Session {
 }
 
 impl Session {
+    /// 在执行外部副作用前自动 checkpoint
+    pub fn auto_checkpoint(&mut self) {
+        self.checkpoints.push(self.state.checkpoint());
+    }
+
     /// 处理一个对话轮次 —— 五段式主循环
     pub async fn process_turn(&mut self, raw_input: &str) -> TurnResult {
         self.turn_count += 1;
@@ -82,6 +88,7 @@ impl Session {
 
         // 4. MetaAction 分支处理
         let meta_action_str = format!("{:?}", assessment.suggested_action);
+        self.auto_checkpoint(); // checkpoint before potentially state-changing operations
         match assessment.suggested_action {
             MetaAction::Proceed => {}
             MetaAction::RetryDecision => {
@@ -302,6 +309,7 @@ mod tests {
             history: ConversationHistory::new(),
             intent_tracker: IntentTracker::new(),
             turn_count: 0,
+            checkpoints: Vec::new(),
             created_at: Utc::now(),
             last_active_at: Utc::now(),
         }
@@ -337,5 +345,68 @@ mod tests {
         let session = make_session();
         let snap = session.snapshot();
         assert_eq!(snap.turn_count, 0);
+    }
+
+    #[tokio::test]
+    async fn checkpoint_created_during_process_turn() {
+        let mut session = make_session();
+        session.process_turn("test input").await;
+        assert!(!session.checkpoints.is_empty());
+    }
+
+    #[tokio::test]
+    async fn integration_full_session_with_all_dimensions() {
+        // Build a complete session with all 5 dimensions wired
+        let reaction = Arc::new(ReactionLayer::builder().build());
+        let metacog = Metacognition::new(
+            Box::new(MockCalibrator),
+            10_000,
+            Duration::seconds(120),
+            5,
+        );
+
+        let mut session = Session {
+            session_id: SessionId::new(),
+            user_id: "user-1".into(),
+            agent_id: AgentId::new(),
+            reaction,
+            state: AgentState::new(),
+            metacognition: metacog,
+            persona: Persona {
+                version: 0,
+                identity: Identity::new("Alice", "assistant")
+                    .with_expertise(vec!["search".into(), "code".into()]),
+                relationships: RelationshipGraph::new(),
+                history: PersonaHistory::new(),
+            },
+            character: Arc::new(Character {
+                core_values: vec![],
+                preferences: Preferences::default(),
+            }),
+            history: ConversationHistory::new(),
+            intent_tracker: IntentTracker::new(),
+            turn_count: 0,
+            checkpoints: Vec::new(),
+            created_at: Utc::now(),
+            last_active_at: Utc::now(),
+        };
+
+        // Process multiple turns
+        let r1 = session.process_turn("search for rust docs").await;
+        assert!(!r1.output.content.is_empty());
+
+        let r2 = session.process_turn("click result #3").await;
+        assert!(!r2.output.content.is_empty());
+
+        // Verify full pipeline executed
+        assert_eq!(session.turn_count, 2);
+        assert_eq!(session.history.len(), 2);
+        assert!(!session.checkpoints.is_empty());
+        assert!(session.state.short_term.last_action.is_some());
+
+        // Verify persona context is available
+        let snap = session.snapshot();
+        assert_eq!(snap.persona_version, 0);
+        assert_eq!(snap.turn_count, 2);
     }
 }

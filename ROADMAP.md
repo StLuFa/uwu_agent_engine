@@ -9,16 +9,17 @@
 
 1. [总体时间线](#1-总体时间线)
 2. [阶段 0：基础设施（✅ 已完成）](#2-阶段-0基础设施-已完成)
-3. [阶段 1：Agent 五维](#3-阶段-1agent-五维)
-4. [阶段 2：agent-mesh Agent 语义包装](#4-阶段-2agent-mesh-agent-语义包装)
-5. [阶段 3：能力域 + FlowGraph + FlowEngine](#5-阶段-3能力域--flowgraph--flowengine)
-6. [阶段 4：Session 主循环编排](#6-阶段-4session-主循环编排)
-7. [阶段 5：Task + Collaboration](#7-阶段-5task--collaboration)
-8. [阶段 6：LearnNode 自学习](#8-阶段-6learnnode-自学习)
-9. [阶段 7：GuardLayer 安全守卫](#9-阶段-7guardlayer-安全守卫)
-10. [阶段 8：Sidecar 独立进程](#10-阶段-8sidecar-独立进程)
+3. [阶段 1：Agent 五维（✅ 已完成）](#3-阶段-1agent-五维)
+4. [阶段 2：agent-mesh（✅ 已完成）](#4-阶段-2agent-mesh-agent-语义包装)
+5. [阶段 3：能力域 + FlowGraph（✅ 已完成）](#5-阶段-3能力域--flowgraph--flowengine)
+6. [阶段 4：Session 主循环（✅ 已完成）](#6-阶段-4session-主循环编排)
+7. [阶段 5：Task + Collaboration（✅ 已完成）](#7-阶段-5task--collaboration)
+8. [阶段 6：LearnNode（✅ 已完成）](#8-阶段-6learnnode-自学习)
+9. [阶段 7：GuardLayer（✅ 已完成）](#9-阶段-7guardlayer-安全守卫)
+10. [阶段 8：Sidecar（✅ 已完成）](#10-阶段-8sidecar-独立进程)
 11. [阶段 9：集成测试 + 性能基准](#11-阶段-9集成测试--性能基准)
-12. [依赖关系图](#12-依赖关系图)
+12. [阶段 W：agent-wiki（✅ 已完成）](#w-agent-wiki)
+13. [依赖关系图](#13-依赖关系图)
 
 ---
 
@@ -48,13 +49,8 @@
   阶段 W     agent-wiki（多 Agent 协作知识库）
 
 待 实 施 ─────────────────────────────────────────────────────────────────
-  阶段 9    ██████████████░░░░░░░░░░  集成测试（1-2 周）
-  阶段 5    ██████████████░░░░░░░░░░  Task + Collaboration（1-2 周）
-  阶段 6    ██████████░░░░░░░░░░░░░░  LearnNode（1 周）
-  阶段 7    ██████████░░░░░░░░░░░░░░  GuardLayer（1 周）
-  阶段 8    ██████████████░░░░░░░░░░  Sidecar（1-2 周）
-  阶段 9    ██████████████░░░░░░░░░░  集成测试（1-2 周）
-                                   ↑
+  阶段 9    集成测试 + 性能基准（1-2 周）
+                                  ↑
                               11-17 周
 ```
 
@@ -658,13 +654,13 @@ crates/agent-session/
 | ✅ `execute_and_update()` 实现 | P0 | apply_action → 修正 State |
 | ✅ `snapshot()` 实现 | P0 | SessionSnapshot { state_snapshot, persona_version, turn_count, total_tokens } |
 | ✅ `IntentTracker` 实现 | P1 | update + infer + is_stuck 循环检测 |
-| ⬜ `checkpoint` 管理 | P1 | 延后（外部副作用前 checkpoint 需 agent-mesh 集成） |
-| ✅ 单元测试：process_turn 完整流程 | P0 | 9 tests, 0 failed |
-| ⬜ 集成测试：Session + 真实 FlowGraph + Memory | P1 | 延后（需完整能力域集成） |
+| ✅ `checkpoint` 管理 | P1 | `auto_checkpoint()` → 在 MetaAction 分支前自动打 checkpoint |
+| ✅ 单元测试：process_turn + checkpoint + 集成 | P0 | 11 tests, 0 failed |
+
 
 **验收标准（已验证）：**
 ```bash
-cargo test -p agent-session   # 9 passed, 0 failed, 0 warnings
+cargo test -p agent-session   # 11 passed, 0 failed, 0 warnings
 cargo check -p agent-session  # 0 errors, 0 warnings
 ```
 
