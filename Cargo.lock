@@ -89,8 +89,6 @@ dependencies = [
 name = "agent-learning"
 version = "0.1.0"
 dependencies = [
- "agent-guard",
- "agent-mesh",
  "agent-state",
  "agent-types-core",
  "async-trait",
@@ -98,6 +96,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "uuid",
 ]
 
 [[package]]

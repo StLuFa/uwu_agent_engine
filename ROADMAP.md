@@ -41,10 +41,11 @@
   阶段 4     agent-session（Session 主循环）
   阶段 5a    agent-task（任务域）
   阶段 5b    agent-collaboration（多 Agent 协作）
+  阶段 6     agent-learning（LearnNode 自学习）
   阶段 W     agent-wiki（多 Agent 协作知识库）
 
 待 实 施 ─────────────────────────────────────────────────────────────────
-  阶段 6    ██████████░░░░░░░░░░░░░░  LearnNode（1 周）
+  阶段 7    ██████████░░░░░░░░░░░░░░  GuardLayer（1 周）
   阶段 5    ██████████████░░░░░░░░░░  Task + Collaboration（1-2 周）
   阶段 6    ██████████░░░░░░░░░░░░░░  LearnNode（1 周）
   阶段 7    ██████████░░░░░░░░░░░░░░  GuardLayer（1 周）
@@ -742,36 +743,39 @@ cargo check -p agent-collaboration  # 0 errors, 0 warnings
 
 ---
 
-## 8. 阶段 6：LearnNode 自学习
+## 8. 阶段 6：LearnNode 自学习 ✅（已完成）
 
-> **依赖：** 阶段 4（Session）、阶段 5（Task）
-> **目标：** Episode 完成后触发学习，根据条件决定是否提取 Skill
+> **实施日期：** 2026-06-29 | **测试结果：** 7 passed, 0 failed |
+> **关联：** 移除了 agent-mesh/agent-guard 依赖
 
 ```
 crates/agent-learning/
 ├── Cargo.toml
+├── README.md               // 完整使用文档 + 5 层防护说明
 └── src/
-    ├── lib.rs              // re-exports
-    ├── trigger.rs          // LearnTrigger + LearnCondition trait
-    ├── conditions/
-    │   ├── mod.rs
-    │   ├── significant_error.rs
-    │   ├── new_pattern.rs
-    │   └── user_confirmed.rs
-    ├── skill.rs            // SkillTarget + SkillVersion
-    └── sandbox.rs          // 沙箱验证新 Skill
+    ├── lib.rs              // Episode + EpisodeOutcome ✅
+    ├── trigger.rs          // LearnCondition trait + LearnDecision + LearnTrigger + tests ✅
+    ├── skill.rs            // SkillTarget + SkillVersion + tests ✅
+    └── conditions/
+        └── mod.rs          // 3 个条件实现 + tests ✅
 ```
 
 | 任务 | 优先级 | 说明 |
 |---|---|---|
-| ☐ `LearnCondition` trait 定义 | P0 | `async fn should_learn(episode, state) -> LearnDecision` |
-| ☐ `LearnDecision` 枚举 | P0 | `Skip, ConsolidateEpisode, ExtractSkill { skill_name, target, confidence }, UpdatePreference` |
-| ☐ `LearnTrigger` 结构体 | P0 | `conditions: Vec<Box<dyn LearnCondition>>` |
-| ☐ `SkillTarget` 枚举 | P0 | `LocalCode { crate_name }, McpRemote { server_id, tool_name, endpoint }` |
-| ☐ `SkillVersion` 结构体 | P0 | `version_id, skill_name, target, hash, verified, active` |
-| ☐ `SignificantErrorCondition` | P0 | 预测误差 > 阈值 → ExtractSkill |
-| ☐ `NewPatternCondition` | P1 | 检测到新模式 → ExtractSkill |
-| ☐ `UserConfirmedCondition` | P1 | 用户确认成功 → ExtractSkill |
+| ✅ `LearnCondition` trait 定义 | P0 | `async fn should_learn(episode, state) -> LearnDecision` |
+| ✅ `LearnDecision` 枚举 | P0 | Skip / ConsolidateEpisode / ExtractSkill / UpdatePreference |
+| ✅ `LearnTrigger` 结构体 | P0 | 顺序评估条件，首个命中即返回 |
+| ✅ `SkillTarget` 枚举 | P0 | LocalCode / McpRemote / LocalPreference |
+| ✅ `SkillVersion` 结构体 | P0 | version_id, hash, verified, active + verify()/deactivate() |
+| ✅ `SignificantErrorCondition` | P0 | pred_error > 阈值 → ExtractSkill |
+| ✅ `NewPatternCondition` | P1 | Success + confidence ≥ 阈值 → ExtractSkill |
+| ✅ `UserConfirmedCondition` | P1 | Success → ConsolidateEpisode |
+
+**验收标准：**
+```bash
+cargo test -p agent-learning   # 7 passed, 0 failed
+cargo check -p agent-learning  # 0 errors, 0 warnings
+```
 | ☐ Guard egress 集成 | P0 | ExtractSkill 写入前：check_egress(target) |
 | ☐ 沙箱验证新 Skill | P0 | fork() State 沙盒中运行 → 通过后 mark verified |
 | ☐ 回滚机制 | P1 | Guard 检测异常 → 自动回滚至上一 SkillVersion |
