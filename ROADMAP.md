@@ -33,9 +33,10 @@
   阶段 1d    agent-persona（人物角色维度）
   阶段 1e    agent-character（人格维度）
   阶段 2     agent-mesh（Agent 语义事件网格）
+  阶段 3a    agent-perception（感知域）
 
 待 实 施 ─────────────────────────────────────────────────────────────────
-  阶段 3    ████████████████████░░░░  能力域 + FlowGraph（2-3 周）
+  阶段 3b-e  能力域剩余（memory / reasoning / execution / tools）
   阶段 4    ██████████████░░░░░░░░░░  Session 主循环（1-2 周）
   阶段 5    ██████████████░░░░░░░░░░  Task + Collaboration（1-2 周）
   阶段 6    ██████████░░░░░░░░░░░░░░  LearnNode（1 周）
@@ -363,16 +364,16 @@ crates/agent-mesh/
 
 | 任务 | 优先级 | 说明 |
 |---|---|---|
-| ☑ 定义 topic 命名空间常量 | P0 | 4 通配符（TOPIC_STATE/TASK/DECISION/PERSONA）+ 8 精确 topic |
-| ☑ `StateSnapshotEvent` 封装 | P0 | event_id, agent_id, snapshot_json, snapshot_version, timestamp |
-| ☑ `TaskCreated` / `TaskCompleted` 事件 | P0 | 封装 Task 生命周期 |
-| ☑ `SubtaskDelegated` / `DelegationResult` 事件 | P1 | 封装协作委派 |
-| ☑ `DecisionMade` / `DecisionRetried` 事件 | P0 | 封装元认知决策（meta_score, meta_action, tokens_used） |
-| ☑ `PersonaUpdated` / `RelationshipChanged` 事件 | P1 | 封装 Persona 变更 |
-| ☑ `AgentTypeRegistry` 初始化 | P0 | 启动期一次性注册全部 9 种事件类型（domain 用下划线） |
-| ☑ `AgentMesh` 门面 | P0 | 包装 `EventMesh` + `FlowHandle`，构造时自动注册所有类型 |
-| ☑ 单元测试：每种事件序列化/反序列化往返 | P0 | 11 tests, 0 failed |
-| ☑ 单元测试：TypeRegistry 注册全部类型 | P0 | |
+| ✅ 定义 topic 命名空间常量 | P0 | 4 通配符（TOPIC_STATE/TASK/DECISION/PERSONA）+ 8 精确 topic |
+| ✅ `StateSnapshotEvent` 封装 | P0 | event_id, agent_id, snapshot_json, snapshot_version, timestamp |
+| ✅ `TaskCreated` / `TaskCompleted` 事件 | P0 | 封装 Task 生命周期 |
+| ✅ `SubtaskDelegated` / `DelegationResult` 事件 | P1 | 封装协作委派 |
+| ✅ `DecisionMade` / `DecisionRetried` 事件 | P0 | 封装元认知决策（meta_score, meta_action, tokens_used） |
+| ✅ `PersonaUpdated` / `RelationshipChanged` 事件 | P1 | 封装 Persona 变更 |
+| ✅ `AgentTypeRegistry` 初始化 | P0 | 启动期一次性注册全部 9 种事件类型（domain 用下划线） |
+| ✅ `AgentMesh` 门面 | P0 | 包装 `EventMesh` + `FlowHandle`，构造时自动注册所有类型 |
+| ✅ 单元测试：每种事件序列化/反序列化往返 | P0 | 11 tests, 0 failed |
+| ✅ 单元测试：TypeRegistry 注册全部类型 | P0 | |
 
 **关键设计：** 本 crate 是对 `uwu_event_mesh` 的薄包装，不重复实现任何底层机制。只定义 Agent 领域的 topic 命名空间和事件类型。
 
@@ -389,32 +390,38 @@ cargo check -p agent-mesh  # 0 errors, 0 warnings
 > **依赖：** 阶段 0b（uwu_visual_script）、阶段 1（agent-state）、阶段 2（agent-mesh）
 > **目标：** Perception/Memory/Reasoning/Execution 作为 visual_script NodeDefinition，FlowGraph 作为领域包装，FlowEngine 作为主循环执行器
 
-### 5.1 agent-perception（2-3 天）
+### 5.1 agent-perception ✅（已完成）
+
+> **实施日期：** 2026-06-29 |
+> **测试结果：** 13 passed, 0 failed, 0 warnings |
+> **关联：** 需 regex 依赖；移除了未使用的 agent-types-ext、agent-mesh 依赖
 
 ```
 crates/agent-perception/
 ├── Cargo.toml
+├── README.md               // 完整使用文档 + PII 策略/模式表
 └── src/
-    ├── lib.rs              // PerceptionPipeline
-    ├── parsers/
-    │   ├── mod.rs
-    │   ├── text.rs         // 文本解析
-    │   ├── json.rs         // JSON 结构化解析
-    │   └── multimodal.rs   // 多模态占位（图像/音频 → 文本描述）
-    ├── pii.rs              // PII 检测（Presidio） + 可逆加密（AES-GCM）
-    └── context.rs          // ContextDescriptor 构建
+    ├── lib.rs              // Perceiver trait + PerceptionPipeline + tests ✅
+    ├── context.rs          // ContextDescriptor re-export + ParsedInput ✅
+    └── pii.rs              // PiiScanner (5 种模式) + PiiStrategy (Mask/Encrypt/Remove) + tests ✅
 ```
 
 | 任务 | 优先级 | 说明 |
 |---|---|---|
-| ☐ `Perceiver` trait 定义 | P0 | `async fn perceive(input: RawInput) -> ContextDescriptor` |
-| ☐ `PerceptionPipeline` 结构体 | P0 | 解析链：RawInput → ParsedInput → PII scan → ContextDescriptor |
-| ☐ 文本解析器（TextParser） | P0 | |
-| ☐ JSON 结构化解析器 | P0 | |
-| ☐ PII 检测集成 | P1 | Presidio 检测 + AES-GCM 可逆加密 |
-| ☐ 注册为 visual_script NodeDefinition | P0 | `"perception.observe"`：Impure + Async |
-| ☐ 单元测试：文本解析 + PII 遮蔽 | P0 | |
-| ☐ 单元测试：作为 visual_script 节点执行 | P0 | |
+| ✅ `Perceiver` trait 定义 | P0 | `async fn perceive(raw_input: &str) -> ContextDescriptor` |
+| ✅ `PerceptionPipeline` 结构体 | P0 | `run()` / `run_parsed()`，可组合 PiiScanner |
+| ✅ 文本解析器（ParsedInput::from_text） | P0 | 集成在 context.rs |
+| ✅ JSON 结构化解析器（ParsedInput::from_json） | P0 | 集成在 context.rs |
+| ✅ PII 检测集成 | P1 | regex 5 种内置模式 + Mask/Encrypt/Remove 三策略 |
+| ⬜ 注册为 visual_script NodeDefinition | P0 | 延后（需 uwu_visual_script 集成） |
+| ✅ 单元测试：文本解析 + PII 遮蔽 | P0 | 13 tests, 0 failed |
+| ⬜ 单元测试：作为 visual_script 节点执行 | P0 | 延后 |
+
+**验收标准（已验证）：**
+```bash
+cargo test -p agent-perception   # 13 passed, 0 failed, 0 warnings
+cargo check -p agent-perception  # 0 errors, 0 warnings
+```
 
 ### 5.2 agent-memory（2-3 天）
 

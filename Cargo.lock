@@ -173,11 +173,10 @@ dependencies = [
 name = "agent-perception"
 version = "0.1.0"
 dependencies = [
- "agent-mesh",
  "agent-state",
  "agent-types-core",
- "agent-types-ext",
  "async-trait",
+ "regex",
  "serde",
  "serde_json",
  "tokio",
