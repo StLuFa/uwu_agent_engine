@@ -422,11 +422,11 @@ crates/agent-perception/
 | ✅ PII 检测集成 | P1 | regex 5 种内置模式 + Mask/Encrypt/Remove 三策略 |
 | ✅ 注册为 visual_script NodeDefinition | P0 | `"perception.observe"`: Impure + Async，feature = "visual-script" |
 | ✅ 单元测试：文本解析 + PII 遮蔽 | P0 | 13 tests, 0 failed |
-| ⬜ 单元测试：作为 visual_script 节点执行 | P0 | 延后 |
+| ✅ 单元测试：作为 visual_script 节点执行 | P0 | 节点注册校验 + runner 异步验证（feature = "visual-script"），15 tests total |
 
 **验收标准（已验证）：**
 ```bash
-cargo test -p agent-perception   # 13 passed, 0 failed, 0 warnings
+cargo test -p agent-perception   # 15 passed, 0 failed, 0 warnings
 cargo check -p agent-perception  # 0 errors, 0 warnings
 ```
 
