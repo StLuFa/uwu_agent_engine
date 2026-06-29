@@ -2,7 +2,7 @@
 name = "agent-sidecar-consolidator"
 version = "0.1.0"
 edition = "2024"
-description = "独立巩固进程——消费 consolidation 通道，LearnNode 触发 + Guard 博弈 + State/Persona 持久化"
+description = "独立巩固进程 —— 消费 Episode → LearnTrigger 评估 → Guard 博弈 → Memory 持久化"
 
 [[bin]]
 name = "consolidator"
@@ -12,10 +12,9 @@ path = "src/main.rs"
 agent-memory = { path = "../agent-memory" }
 agent-learning = { path = "../agent-learning" }
 agent-guard = { path = "../agent-guard" }
-agent-mesh = { path = "../agent-mesh" }
 agent-types-core = { path = "../agent-types-core" }
-uwu_event_mesh = { path = "../../pkg/uwu_event_mesh" }
+agent-state = { path = "../agent-state" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4", features = ["serde"] }
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["sync", "rt-multi-thread", "macros", "time"] }

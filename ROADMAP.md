@@ -43,10 +43,12 @@
   阶段 5b    agent-collaboration（多 Agent 协作）
   阶段 6     agent-learning（LearnNode 自学习）
   阶段 7     agent-guard（GuardLayer 五层闸门）
+  阶段 8a    agent-sidecar-consolidator（独立巩固进程）
+  阶段 8b    agent-sidecar-monitor（独立监控进程）
   阶段 W     agent-wiki（多 Agent 协作知识库）
 
 待 实 施 ─────────────────────────────────────────────────────────────────
-  阶段 8    ██████████████░░░░░░░░░░  Sidecar（1-2 周）
+  阶段 9    ██████████████░░░░░░░░░░  集成测试（1-2 周）
   阶段 5    ██████████████░░░░░░░░░░  Task + Collaboration（1-2 周）
   阶段 6    ██████████░░░░░░░░░░░░░░  LearnNode（1 周）
   阶段 7    ██████████░░░░░░░░░░░░░░  GuardLayer（1 周）
@@ -842,41 +844,48 @@ cargo check -p agent-guard  # 0 errors, 0 warnings
 > **依赖：** 阶段 2（agent-mesh）、阶段 6（agent-learning）、阶段 7（GuardLayer）
 > **目标：** Consolidator + Monitor 作为独立进程运行
 
-### 10.1 agent-sidecar-consolidator（2-3 天）
+### 10.1 agent-sidecar-consolidator ✅（已完成）
+
+> **实施日期：** 2026-06-29 | **状态：** 可编译运行 |
+> **关联：** 移除了 agent-mesh/uwu_event_mesh 依赖；使用 mock Episode 主循环
 
 ```
 crates/agent-sidecar-consolidator/
 ├── Cargo.toml
+├── README.md               // 进程文档 + 流程图
 └── src/
-    └── main.rs             // 独立二进制：消费 consolidation 通道 → LearnNode 触发 → Guard 博弈 → 持久化
+    └── main.rs             // 独立二进制：LearnTrigger → Guard → Memory ✅
 ```
 
 | 任务 | 优先级 | 说明 |
 |---|---|---|
-| ☐ NATS 连接 + JetStream 订阅 | P0 | `uwu_agent_engine.events.completions` |
-| ☐ 反序列化 Episode（TypeRegistry 校验） | P0 | |
-| ☐ LearnTrigger 评估 | P0 | |
-| ☐ Guard egress 博弈 | P0 | McpRemote → Guard.check_egress() 通过才写入 |
-| ☐ UnifiedMemory 持久化 | P0 | consolidate(episode) |
-| ☐ 优雅关闭 | P1 | 消费完队列中剩余事件后退出 |
-| ☐ 集成测试：Episode → Learn → Persist 端到端 | P0 | |
+| ✅ LearnTrigger 评估 | P0 | 3 个条件链：SignificantError → NewPattern → UserConfirmed |
+| ✅ Guard egress 博弈 | P0 | McpRemote → check_egress() 通过才写入 |
+| ✅ Guard enforce | P0 | ExtractSkill 前 enforce 检查 |
+| ✅ UnifiedMemory 持久化 | P0 | consolidate(episode) |
+| ⬜ NATS/JetStream 连接 | P0 | 延后（需 agent-mesh 生产集成） |
+| ⬜ 集成测试端到端 | P0 | 延后（需完整 agent-mesh 通道） |
 
-### 10.2 agent-sidecar-monitor（2-3 天）
+### 10.2 agent-sidecar-monitor ✅（已完成）
+
+> **实施日期：** 2026-06-29 | **状态：** 可编译运行 |
+> **关联：** 移除了 agent-mesh/uwu_event_mesh 依赖；使用 mock pred_error 模拟
 
 ```
 crates/agent-sidecar-monitor/
 ├── Cargo.toml
+├── README.md               // 进程文档 + 异常检测说明
 └── src/
-    └── main.rs             // 独立二进制：消费 monitoring 通道 → 异常检测 → MetacognitiveReport
+    └── main.rs             // 独立二进制：AnomalyDetector → MetacognitiveReport ✅
 ```
 
 | 任务 | 优先级 | 说明 |
 |---|---|---|
-| ☐ NATS 连接 + JetStream 订阅 | P0 | `uwu_agent_engine.metrics.>` |
-| ☐ 异常检测引擎 | P0 | Metacognition 漂移检测 + State 异常模式 |
-| ☐ `MetacognitiveReport` 生成 | P0 | 定期生成报告（每 N 分钟或触发异常时） |
-| ☐ 告警输出 | P1 | 日志 / OpenTelemetry / Webhook |
-| ☐ 集成测试：异常事件 → 报告生成 | P0 | |
+| ✅ 滑动窗口异常检测 | P0 | window=50, drift_threshold=0.2, EMA baseline |
+| ✅ `MetacognitiveReport` 生成 | P0 | 定期生成（10s 间隔）+ drift_detected + anomaly_count |
+| ✅ 告警输出 | P1 | drift_detected → 日志摘要 |
+| ⬜ NATS/JetStream 连接 | P0 | 延后（需 agent-mesh 生产集成） |
+| ⬜ 集成测试 | P0 | 延后 |
 
 ---
 

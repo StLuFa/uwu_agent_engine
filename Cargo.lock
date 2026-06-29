@@ -211,26 +211,24 @@ dependencies = [
  "agent-guard",
  "agent-learning",
  "agent-memory",
- "agent-mesh",
+ "agent-state",
  "agent-types-core",
  "chrono",
  "serde",
  "serde_json",
  "tokio",
- "uwu_event_mesh",
 ]
 
 [[package]]
 name = "agent-sidecar-monitor"
 version = "0.1.0"
 dependencies = [
- "agent-mesh",
- "agent-types-core",
+ "agent-state",
  "chrono",
  "serde",
  "serde_json",
  "tokio",
- "uwu_event_mesh",
+ "uuid",
 ]
 
 [[package]]

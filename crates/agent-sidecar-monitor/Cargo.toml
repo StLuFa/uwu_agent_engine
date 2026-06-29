@@ -2,17 +2,16 @@
 name = "agent-sidecar-monitor"
 version = "0.1.0"
 edition = "2024"
-description = "独立监控进程——消费 monitoring 通道，Metacognition 异常检测 + State 漂移检测"
+description = "独立监控进程 —— 异常检测 + MetacognitiveReport 生成"
 
 [[bin]]
 name = "monitor"
 path = "src/main.rs"
 
 [dependencies]
-agent-mesh = { path = "../agent-mesh" }
-agent-types-core = { path = "../agent-types-core" }
-uwu_event_mesh = { path = "../../pkg/uwu_event_mesh" }
+agent-state = { path = "../agent-state" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4", features = ["serde"] }
-tokio = { version = "1", features = ["full"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+tokio = { version = "1", features = ["sync", "rt-multi-thread", "macros", "time"] }
