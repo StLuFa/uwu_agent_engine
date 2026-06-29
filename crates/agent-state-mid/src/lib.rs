@@ -5,7 +5,4 @@
 //! MidTermWS 承载动作历史、已知事实和交互模式检测，
 //! 是 Metacognition 消费的关键输入（recent_pattern → SwitchStrategy）。
 
-use agent_state::MidTermWS;
-
-// Re-export from agent-state
-pub use MidTermWS;
+pub use agent_state::MidTermWS;

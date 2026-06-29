@@ -51,7 +51,7 @@ pub struct ReasoningOutput {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agent_types_core::ActionParams;
+    use agent_types_core::{Action, ActionParams};
 
     #[test]
     fn decision_single_creates_one_action() {
