@@ -418,7 +418,7 @@ crates/agent-perception/
 | ✅ 文本解析器（ParsedInput::from_text） | P0 | 集成在 context.rs |
 | ✅ JSON 结构化解析器（ParsedInput::from_json） | P0 | 集成在 context.rs |
 | ✅ PII 检测集成 | P1 | regex 5 种内置模式 + Mask/Encrypt/Remove 三策略 |
-| ⬜ 注册为 visual_script NodeDefinition | P0 | 延后（需 uwu_visual_script 集成） |
+| ✅ 注册为 visual_script NodeDefinition | P0 | `"perception.observe"`: Impure + Async，feature = "visual-script" |
 | ✅ 单元测试：文本解析 + PII 遮蔽 | P0 | 13 tests, 0 failed |
 | ⬜ 单元测试：作为 visual_script 节点执行 | P0 | 延后 |
 
@@ -501,7 +501,7 @@ crates/agent-memory/
 | ✅ `consolidate(episode)` | P0 | Episode → Episodic + Semantic + Procedural 记忆 |
 | ✅ `Embedding::mock()` | P0 | 确定性伪嵌入，开发调试用 |
 | ✅ `MemoryFacade` 门面 | P0 | 封装常用操作：retrieve() / persist_state() / consolidate() |
-| ⬜ 注册为 visual_script NodeDefinition | P0 | 延后 |
+| ✅ 注册为 visual_script NodeDefinition | P0 | `"memory.retrieve"`: Impure + Async，feature = "visual-script" |
 | ✅ 单元测试：retrieve 返回相关记忆 | P0 | 10 tests, 0 failed |
 | ✅ 单元测试：persist_state → retrieve 往返 | P0 | |
 
@@ -541,7 +541,7 @@ crates/agent-reasoning/
 | ✅ `ToTExplorer` 结构体 | P1 | Beam Search：生成候选 → fork 推演 → 评分 → 剪枝（beam_width=3, max_depth=4） |
 | ✅ fork 沙盒推演 | P0 | `SandboxEvaluator::evaluate_candidates()`: fork → apply_hypothetical → evaluate |
 | ✅ 推理策略切换 | P0 | `ReasoningStrategy::from_cost_remaining()`: Normal/Degraded/Urgent/Abort + allows_tot/new_tools/should_abort |
-| ⬜ 注册为 visual_script NodeDefinition | P0 | 延后 |
+| ✅ 注册为 visual_script NodeDefinition | P0 | `"reasoning.decide"`: Impure + Async，feature = "visual-script" |
 | ✅ 单元测试：单步推理 | P0 | 12 tests, 0 failed |
 | ✅ 单元测试：ToT beam search | P1 | |
 | ✅ 单元测试：TTS 信号 → 策略切换 | P0 | |
@@ -575,7 +575,7 @@ crates/agent-execution/
 | ✅ MCP 工具调用 | P0 | `McpClient`: register_tool + call（mock）+ 已注册/未注册分支 |
 | ✅ OutputFormatter | P0 | PlainText / Json / Markdown 三种输出格式 |
 | ⬜ WASM 沙箱执行 | P2 | 延后（需 uwu_wasm feature flag） |
-| ⬜ 注册为 visual_script NodeDefinition | P0 | 延后 |
+| ✅ 注册为 visual_script NodeDefinition | P0 | `"execution.act"`: Impure + Async，feature = "visual-script" |
 | ✅ 单元测试：MCP 工具调用 mock | P0 | 9 tests, 0 failed |
 | ⬜ 单元测试：WASM 沙箱执行 | P2 | 延后 |
 
@@ -611,7 +611,7 @@ crates/agent-core/
 | ✅ `add_edge_dynamic()` | P0 | 运行时动态添加阶段和边 |
 | ✅ `CapabilityRegistry` 结构体 | P0 | HashMap<Stage, Vec<Box<dyn CapabilityHandler>>>，同阶段多处理器 |
 | ✅ `FlowEngine` 结构体 | P0 | `run(flow, input, state) -> FlowContext`，按拓扑执行各阶段 |
-| ⬜ FlowEngine 与 visual_script VM 集成 | P0 | 延后（FlowGraph 当前为纯配置，后续可接 uwu_visual_script VM） |
+| ✅ FlowEngine 与 visual_script VM 集成 | P0 | `"flow.run"` 节点: Impure + Async，feature = "visual-script" |
 | ✅ 单元测试：standard/high_security 管道执行 | P0 | 13 tests, 0 failed |
 | ✅ 单元测试：add_edge_dynamic() 更新 | P0 | |
 | ✅ 单元测试：FlowEngine 完整执行 P→M→R→E | P0 | |

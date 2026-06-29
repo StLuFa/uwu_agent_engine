@@ -7,6 +7,8 @@
 pub mod capability;
 pub mod engine;
 pub mod flow;
+#[cfg(feature = "visual-script")]
+pub mod vs_nodes;
 
 pub use capability::CapabilityRegistry;
 pub use engine::{Decision, FlowContext, FlowEngine};

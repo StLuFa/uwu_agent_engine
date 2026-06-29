@@ -6,6 +6,8 @@
 
 mod mcp;
 mod output;
+#[cfg(feature = "visual-script")]
+pub mod vs_nodes;
 
 pub use mcp::{McpClient, McpResult};
 pub use output::{OutputFormat, OutputFormatter};

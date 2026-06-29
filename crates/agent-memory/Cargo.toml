@@ -13,3 +13,8 @@ chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 async-trait = "0.1"
 tokio = { version = "1", features = ["sync", "rt", "macros"] }
+uwu_visual_script = { path = "../../pkg/uwu_visual_script", optional = true }
+
+[features]
+default = []
+visual-script = ["uwu_visual_script"]

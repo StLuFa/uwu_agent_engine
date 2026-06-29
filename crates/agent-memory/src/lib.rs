@@ -12,6 +12,8 @@ mod embedding;
 mod retrieve;
 mod types;
 mod unified;
+#[cfg(feature = "visual-script")]
+pub mod vs_nodes;
 
 pub use consolidate::{Episode, consolidate_episode};
 pub use embedding::Embedding;

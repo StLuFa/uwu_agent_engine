@@ -17,6 +17,8 @@ mod reasoner;
 mod sandbox;
 mod strategies;
 mod tot;
+#[cfg(feature = "visual-script")]
+pub mod vs_nodes;
 
 pub use reasoner::{Decision, Reasoner};
 pub use sandbox::SandboxEvaluator;

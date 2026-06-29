@@ -6,6 +6,8 @@
 
 mod context;
 mod pii;
+#[cfg(feature = "visual-script")]
+pub mod vs_nodes;
 
 pub use context::{ContextDescriptor, ParsedInput};
 pub use pii::{PiiScanner, PiiStrategy};
