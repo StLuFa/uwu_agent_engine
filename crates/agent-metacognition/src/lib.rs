@@ -44,11 +44,11 @@ pub use evaluate::{Metacognition, MetacognitiveAssessment, MetaScoreWeights};
 pub use history::{CalibrationHistory, CalibrationRecord};
 pub use tts::{TTSSignal, compute_cost_remaining_from_budget};
 
-use agent_state::AgentState;
-use agent_types_core::Action;
+
+use serde::{Deserialize, Serialize};
 
 /// 元认知动作 —— Metacognition 评估后对主循环的建议
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MetaAction {
     /// 正常放行
     Proceed,

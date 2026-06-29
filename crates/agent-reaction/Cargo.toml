@@ -9,4 +9,4 @@ agent-types-core = { path = "../agent-types-core" }
 agent-state = { path = "../agent-state" }
 async-trait = "0.1"
 serde = { version = "1", features = ["derive"] }
-tokio = { version = "1", features = ["sync"] }
+tokio = { version = "1", features = ["sync", "rt", "macros"] }
