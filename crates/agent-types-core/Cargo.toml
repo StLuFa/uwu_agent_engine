@@ -1,0 +1,10 @@
+[package]
+name = "agent-types-core"
+version = "0.1.0"
+edition = "2024"
+description = "基础类型（冻结）—— AgentId, Action, Layer<I,O>, Uncertain<T> 等全系统共享类型"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }

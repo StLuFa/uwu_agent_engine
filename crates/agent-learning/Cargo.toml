@@ -1,0 +1,16 @@
+[package]
+name = "agent-learning"
+version = "0.1.0"
+edition = "2024"
+description = "学习触发——LearnNode 条件触发 + SkillTarget 本地/远程 + Guard egress 博弈 + SkillVersion"
+
+[dependencies]
+agent-types-core = { path = "../agent-types-core" }
+agent-state = { path = "../agent-state" }
+agent-mesh = { path = "../agent-mesh" }
+agent-guard = { path = "../agent-guard" }
+async-trait = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+tokio = { version = "1", features = ["full"] }

@@ -1,0 +1,1 @@
+//! CapabilityRegistry dynamic registration

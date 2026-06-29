@@ -1,0 +1,17 @@
+[package]
+name = "agent-tools"
+version = "0.1.0"
+edition = "2024"
+description = "MCP 工具协议——ToolExecutor + MCPClient，优先 MCP 兼容 OpenAI Function Calling"
+
+[dependencies]
+agent-types-core = { path = "../agent-types-core" }
+agent-types-ext = { path = "../agent-types-ext" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", features = ["json"], optional = true }
+tokio = { version = "1", features = ["sync"] }
+
+[features]
+default = ["http"]
+http = ["reqwest"]

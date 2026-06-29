@@ -1,0 +1,9 @@
+[package]
+name = "agent-character"
+version = "0.1.0"
+edition = "2024"
+description = "人格——核心价值观不可变（安全锚点）+ 决策偏好可调"
+
+[dependencies]
+agent-types-core = { path = "../agent-types-core" }
+serde = { version = "1", features = ["derive"] }

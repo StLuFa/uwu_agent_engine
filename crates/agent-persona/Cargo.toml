@@ -1,0 +1,11 @@
+[package]
+name = "agent-persona"
+version = "0.1.0"
+edition = "2024"
+description = "人物角色（MVCC 版本化）——身份/关系网络/履历，跨组织协作的身份锚点"
+
+[dependencies]
+agent-types-core = { path = "../agent-types-core" }
+serde = { version = "1", features = ["derive"] }
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }

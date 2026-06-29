@@ -1,0 +1,1 @@
+//! PersonaUpdated event

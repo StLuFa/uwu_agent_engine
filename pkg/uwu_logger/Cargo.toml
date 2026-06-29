@@ -1,0 +1,8 @@
+[package]
+name = "uwu_logger"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+color = "0.3.3"
+chrono = "0.4.45"

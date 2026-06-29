@@ -1,0 +1,225 @@
+//! # agent-guard
+//!
+//! 五层安全闸门 —— 指令 / 参数 / 能力 / 预算 / egress。
+//! 编译期注册，运行时不可绕过，不可自提升。
+//!
+//! ## 五层闸门
+//!
+//! | 闸门 | 职责 | 示例规则 |
+//! |---|---|---|
+//! | Instruction | 检查动作指令 | `no-rm-rf` 禁止递归删除 |
+//! | Parameter | 检查参数合法性 | 文件大小限制、端口白名单 |
+//! | Capability | 检查能力权限 | 禁止未注册的能力调用 |
+//! | Budget | 检查预算 | Token / 时间 / 重试 预算 |
+//! | Egress | 检查出站写入 | MCP 写入白名单 |
+
+mod audit;
+pub mod rules;
+
+pub use audit::AuditLog;
+
+use agent_types_core::{Action, ActionParams};
+use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+
+/// 违规级别
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ViolationLevel {
+    Warning,
+    Critical,
+}
+
+/// 守卫违规
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GuardViolation {
+    pub rule: String,
+    pub level: ViolationLevel,
+    pub message: String,
+}
+
+// ---- 五层 trait ----
+
+#[async_trait]
+pub trait InstructionRule: Send + Sync {
+    async fn check(&self, action: &Action) -> Option<GuardViolation>;
+}
+
+#[async_trait]
+pub trait ParameterRule: Send + Sync {
+    async fn check(&self, action: &Action, params: &ActionParams) -> Option<GuardViolation>;
+}
+
+#[async_trait]
+pub trait CapabilityRule: Send + Sync {
+    async fn check(&self, action: &Action) -> Option<GuardViolation>;
+}
+
+#[async_trait]
+pub trait BudgetRule: Send + Sync {
+    async fn check(&self, tokens_used: u64, max_tokens: u64, retries: u32, max_retries: u32) -> Option<GuardViolation>;
+}
+
+#[async_trait]
+pub trait EgressRule: Send + Sync {
+    async fn check_egress(&self, target: &str) -> Option<GuardViolation>;
+}
+
+/// Agent 上下文（Guard 检查所需信息）
+#[derive(Debug, Clone)]
+pub struct AgentContext {
+    pub session_id: String,
+    pub agent_id: String,
+    pub tokens_used: u64,
+    pub max_tokens: u64,
+    pub retries: u32,
+    pub max_retries: u32,
+}
+
+/// 守卫层 —— 五层硬闸门
+pub struct GuardLayer {
+    instruction_rules: Vec<Box<dyn InstructionRule + Send + Sync>>,
+    parameter_rules: Vec<Box<dyn ParameterRule + Send + Sync>>,
+    capability_rules: Vec<Box<dyn CapabilityRule + Send + Sync>>,
+    budget_rules: Vec<Box<dyn BudgetRule + Send + Sync>>,
+    egress_rules: Vec<Box<dyn EgressRule + Send + Sync>>,
+    audit_log: Arc<AuditLog>,
+}
+
+impl GuardLayer {
+    pub fn builder() -> GuardBuilder {
+        GuardBuilder::new()
+    }
+
+    /// 强制执行五层闸门，返回放行的动作或被阻断的违规列表
+    pub async fn enforce(
+        &self,
+        actions: &[Action],
+        context: &AgentContext,
+    ) -> Result<Vec<Action>, Vec<GuardViolation>> {
+        let mut allowed = Vec::new();
+        let mut blocked = Vec::new();
+
+        for action in actions {
+            let mut violations = Vec::new();
+
+            // 1. 指令检查
+            for rule in &self.instruction_rules {
+                if let Some(v) = rule.check(action).await {
+                    violations.push(v);
+                }
+            }
+            // 2. 参数检查
+            for rule in &self.parameter_rules {
+                if let Some(v) = rule.check(action, &ActionParams::default()).await {
+                    violations.push(v);
+                }
+            }
+            // 3. 能力检查
+            for rule in &self.capability_rules {
+                if let Some(v) = rule.check(action).await {
+                    violations.push(v);
+                }
+            }
+            // 4. 预算检查
+            for rule in &self.budget_rules {
+                if let Some(v) = rule.check(context.tokens_used, context.max_tokens, context.retries, context.max_retries).await {
+                    violations.push(v);
+                }
+            }
+
+            if violations.is_empty() {
+                allowed.push(action.clone());
+            } else {
+                self.audit_log.log_guard_hit(action, &violations).await;
+                blocked.extend(violations);
+            }
+        }
+
+        if blocked.is_empty() {
+            Ok(allowed)
+        } else {
+            Err(blocked)
+        }
+    }
+
+    /// Egress 检查（学习写入出站）
+    pub async fn check_egress(&self, target: &str) -> Result<(), GuardViolation> {
+        for rule in &self.egress_rules {
+            if let Some(v) = rule.check_egress(target).await {
+                return Err(v);
+            }
+        }
+        Ok(())
+    }
+}
+
+/// GuardLayer 构建器 —— 编译期注册规则
+pub struct GuardBuilder {
+    instruction_rules: Vec<Box<dyn InstructionRule + Send + Sync>>,
+    parameter_rules: Vec<Box<dyn ParameterRule + Send + Sync>>,
+    capability_rules: Vec<Box<dyn CapabilityRule + Send + Sync>>,
+    budget_rules: Vec<Box<dyn BudgetRule + Send + Sync>>,
+    egress_rules: Vec<Box<dyn EgressRule + Send + Sync>>,
+    audit_log_path: Option<String>,
+}
+
+impl GuardBuilder {
+    pub fn new() -> Self {
+        Self {
+            instruction_rules: Vec::new(),
+            parameter_rules: Vec::new(),
+            capability_rules: Vec::new(),
+            budget_rules: Vec::new(),
+            egress_rules: Vec::new(),
+            audit_log_path: None,
+        }
+    }
+
+    pub fn add_instruction_rule<R: InstructionRule + 'static>(mut self, rule: R) -> Self {
+        self.instruction_rules.push(Box::new(rule));
+        self
+    }
+
+    pub fn add_parameter_rule<R: ParameterRule + 'static>(mut self, rule: R) -> Self {
+        self.parameter_rules.push(Box::new(rule));
+        self
+    }
+
+    pub fn add_capability_rule<R: CapabilityRule + 'static>(mut self, rule: R) -> Self {
+        self.capability_rules.push(Box::new(rule));
+        self
+    }
+
+    pub fn add_budget_rule<R: BudgetRule + 'static>(mut self, rule: R) -> Self {
+        self.budget_rules.push(Box::new(rule));
+        self
+    }
+
+    pub fn add_egress_rule<R: EgressRule + 'static>(mut self, rule: R) -> Self {
+        self.egress_rules.push(Box::new(rule));
+        self
+    }
+
+    pub fn audit_log_path(mut self, path: impl Into<String>) -> Self {
+        self.audit_log_path = Some(path.into());
+        self
+    }
+
+    pub fn build(self) -> GuardLayer {
+        GuardLayer {
+            instruction_rules: self.instruction_rules,
+            parameter_rules: self.parameter_rules,
+            capability_rules: self.capability_rules,
+            budget_rules: self.budget_rules,
+            egress_rules: self.egress_rules,
+            audit_log: Arc::new(AuditLog::new(self.audit_log_path.as_deref())),
+        }
+    }
+}
+
+impl Default for GuardBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}

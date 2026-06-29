@@ -1,0 +1,10 @@
+[package]
+name = "agent-types-ext"
+version = "0.1.0"
+edition = "2024"
+description = "业务类型（可迭代）—— TaskManifest, AgentCard, SettlementPolicy, SubtaskDag 等"
+
+[dependencies]
+agent-types-core = { path = "../agent-types-core" }
+serde = { version = "1", features = ["derive"] }
+chrono = { version = "0.4", features = ["serde"] }

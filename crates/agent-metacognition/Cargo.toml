@@ -1,0 +1,13 @@
+[package]
+name = "agent-metacognition"
+version = "0.1.0"
+edition = "2024"
+description = "元认知——三信号在线自校准 + TTS 渐进式预算控制"
+
+[dependencies]
+agent-types-core = { path = "../agent-types-core" }
+agent-state = { path = "../agent-state" }
+serde = { version = "1", features = ["derive"] }
+chrono = { version = "0.4", features = ["serde"] }
+async-trait = "0.1"
+tokio = { version = "1", features = ["sync"] }

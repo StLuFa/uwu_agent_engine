@@ -1,0 +1,49 @@
+[workspace]
+members = [
+    ".",
+    # 基础设施（已完成）
+    "pkg/uwu_database",
+    "pkg/uwu_event_mesh",
+    "pkg/uwu_logger",
+    "pkg/uwu_visual_script",
+    "pkg/uwu_wasm",
+    # Agent 核心类型
+    "crates/agent-types-core",
+    "crates/agent-types-ext",
+    # Agent 事件网格
+    "crates/agent-mesh",
+    # Agent 五维
+    "crates/agent-state",
+    "crates/agent-state-short",
+    "crates/agent-state-mid",
+    "crates/agent-state-long",
+    "crates/agent-reaction",
+    "crates/agent-metacognition",
+    "crates/agent-persona",
+    "crates/agent-character",
+    # 能力域
+    "crates/agent-perception",
+    "crates/agent-memory",
+    "crates/agent-reasoning",
+    "crates/agent-execution",
+    # 协作与安全
+    "crates/agent-uncertainty",
+    "crates/agent-crdt",
+    "crates/agent-tools",
+    "crates/agent-guard",
+    "crates/agent-learning",
+    # 编排
+    "crates/agent-session",
+    "crates/agent-task",
+    "crates/agent-collaboration",
+    "crates/agent-core",
+    # Sidecar
+    "crates/agent-sidecar-consolidator",
+    "crates/agent-sidecar-monitor",
+]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"

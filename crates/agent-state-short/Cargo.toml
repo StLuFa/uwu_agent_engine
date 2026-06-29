@@ -1,0 +1,9 @@
+[package]
+name = "agent-state-short"
+version = "0.1.0"
+edition = "2024"
+description = "短程工作状态（独立 crate，可选）—— ShortTermWS 精细定义"
+
+[dependencies]
+agent-state = { path = "../agent-state" }
+serde = { version = "1", features = ["derive"] }

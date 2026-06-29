@@ -1,0 +1,9 @@
+[package]
+name = "agent-uncertainty"
+version = "0.1.0"
+edition = "2024"
+description = "贝叶斯不确定性——不确定性聚合器，集成到主循环推理"
+
+[dependencies]
+agent-types-core = { path = "../agent-types-core" }
+serde = { version = "1", features = ["derive"] }

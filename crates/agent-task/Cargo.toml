@@ -1,0 +1,16 @@
+[package]
+name = "agent-task"
+version = "0.1.0"
+edition = "2024"
+description = "任务域——TaskManifest + AgentCard + SettlementPolicy + SubtaskDAG 调度"
+
+[dependencies]
+agent-types-core = { path = "../agent-types-core" }
+agent-types-ext = { path = "../agent-types-ext" }
+agent-state = { path = "../agent-state" }
+agent-mesh = { path = "../agent-mesh" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+tokio = { version = "1", features = ["sync"] }
