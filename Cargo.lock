@@ -67,6 +67,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
+ "reqwest",
  "serde",
  "serde_json",
  "tokio",
@@ -194,9 +195,13 @@ name = "agent-session"
 version = "0.1.0"
 dependencies = [
  "agent-character",
+ "agent-execution",
+ "agent-memory",
  "agent-metacognition",
+ "agent-perception",
  "agent-persona",
  "agent-reaction",
+ "agent-reasoning",
  "agent-state",
  "agent-types-core",
  "async-trait",

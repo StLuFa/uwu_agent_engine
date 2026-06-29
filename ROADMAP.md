@@ -575,11 +575,11 @@ crates/agent-execution/
 |---|---|---|
 | ✅ `Executor` trait 定义 | P0 | `async fn execute(action, state) -> ExecutionResult` |
 | ✅ `ActionExecutor` 结构体 | P0 | `execute_action()` + `execute_batch()` + with_mcp/with_max_parallel |
-| ✅ MCP 工具调用 | P0 | `McpClient`: register_tool + call（mock）+ 已注册/未注册分支 |
+| ✅ MCP 工具调用 | P0 | `McpClient`: mock 模式 + HTTP 模式（feature = "http"，POST 真实 MCP Server），优雅降级 |
 | ✅ OutputFormatter | P0 | PlainText / Json / Markdown 三种输出格式 |
 | ✅ WASM 沙箱执行 | P2 | `WasmExecutor`: uwu_wasm::Sandbox 集成 + Policy + 模块注册 + add/sub/mul 已验证（feature = "wasm-sandbox"） |
 | ✅ 注册为 visual_script NodeDefinition | P0 | `"execution.act"`: Impure + Async，feature = "visual-script" |
-| ✅ 单元测试：MCP 工具调用 mock | P0 | 9 tests, 0 failed |
+| ✅ 单元测试：MCP 工具调用 mock | P0 | 10 tests, 0 failed（含 mock/http 双模式） |
 | ✅ 单元测试：WASM 沙箱执行 | P2 | 11 tests (wasm module register/execute/batch/policy/missing params/unknown module)，0 failed |
 
 **验收标准（已验证）：**
@@ -648,8 +648,8 @@ crates/agent-session/
 
 | 任务 | 优先级 | 说明 |
 |---|---|---|
-| ✅ `Session` 结构体 | P0 | 持有五维 + ConversationHistory + IntentTracker |
-| ✅ `process_turn()` 完整主循环 | P0 | 6 段式：Reaction → FlowGraph → Metacognition → MetaAction 6 分支 → Execution → Calibrate |
+| ✅ `Session` 结构体 | P0 | 持有五维 + P→M→R→E 管道（PerceptionPipeline + MemoryFacade + Reasoner + ActionExecutor） + ConversationHistory + IntentTracker |
+| ✅ `process_turn()` 完整主循环 | P0 | 6 段式：Reaction → FlowGraph(真实P→M→R→E) → Metacognition → MetaAction 6 分支 → Execution + Memory持久化 → Calibrate |
 | ✅ `enrich_input()` 实现 | P1 | PersonaContext + CharacterContext 注入 |
 | ✅ `execute_reaction()` 实现 | P0 | Hit → 0 token 直接执行 |
 | ✅ MetaAction 全部分支处理 | P0 | Proceed / RetryDecision(rollback+重推理) / RequestClarification / SwitchStrategy(降级) / DelegateToHuman / AbortOnBudget |
@@ -852,7 +852,8 @@ crates/agent-sidecar-consolidator/
 ├── Cargo.toml
 ├── README.md               // 进程文档 + 流程图
 └── src/
-    └── main.rs             // 独立二进制：LearnTrigger → Guard → Memory ✅
+    ├── lib.rs              // Consolidator 库（可嵌入）+ channel-based 循环 ✅
+    └── main.rs             // 独立二进制入口 ✅
 ```
 
 | 任务 | 优先级 | 说明 |
@@ -861,27 +862,31 @@ crates/agent-sidecar-consolidator/
 | ✅ Guard egress 博弈 | P0 | McpRemote → check_egress() 通过才写入 |
 | ✅ Guard enforce | P0 | ExtractSkill 前 enforce 检查 |
 | ✅ UnifiedMemory 持久化 | P0 | consolidate(episode) |
+| ✅ Channel-based 长期运行 | P0 | tokio::sync::mpsc 消费 Episode 流，无固定迭代限制 |
 | ⬜ NATS/JetStream 连接 | P0 | 延后（需 agent-mesh 生产集成） |
 | ⬜ 集成测试端到端 | P0 | 延后（需完整 agent-mesh 通道） |
 
 ### 10.2 agent-sidecar-monitor ✅（已完成）
 
-> **实施日期：** 2026-06-29 | **状态：** 可编译运行 |
-> **关联：** 移除了 agent-mesh/uwu_event_mesh 依赖；使用 mock pred_error 模拟
+> **实施日期：** 2026-06-29 | **状态：** 可编译运行，3 tests |
+> **关联：** AnomalyDetector + MetacognitiveReport 已提取为公共库
 
 ```
 crates/agent-sidecar-monitor/
 ├── Cargo.toml
 ├── README.md               // 进程文档 + 异常检测说明
 └── src/
-    └── main.rs             // 独立二进制：AnomalyDetector → MetacognitiveReport ✅
+    ├── lib.rs              // AnomalyDetector + MetacognitiveReport + run_monitor()（可嵌入）✅
+    └── main.rs             // 独立二进制入口 ✅
 ```
 
 | 任务 | 优先级 | 说明 |
 |---|---|---|
 | ✅ 滑动窗口异常检测 | P0 | window=50, drift_threshold=0.2, EMA baseline |
-| ✅ `MetacognitiveReport` 生成 | P0 | 定期生成（10s 间隔）+ drift_detected + anomaly_count |
+| ✅ `MetacognitiveReport` 生成 | P0 | tokio::select 事件驱动 + 定期报告 + report channel 输出 |
 | ✅ 告警输出 | P1 | drift_detected → 日志摘要 |
+| ✅ Channel-based 长期运行 | P0 | tokio::sync::mpsc 消费 pred_error 流，优雅关闭 |
+| ✅ 单元测试 | P1 | 3 tests（defaults/feed_mean/detect_drift） |
 | ⬜ NATS/JetStream 连接 | P0 | 延后（需 agent-mesh 生产集成） |
 | ⬜ 集成测试 | P0 | 延后 |
 

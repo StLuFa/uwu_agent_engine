@@ -15,11 +15,13 @@ tokio = { version = "1", features = ["sync", "rt", "macros", "time"] }
 uwu_visual_script = { path = "../../pkg/uwu_visual_script", optional = true }
 uwu_wasm = { path = "../../pkg/uwu_wasm", optional = true }
 anyhow = { version = "1", optional = true }
+reqwest = { version = "0.12", features = ["json"], optional = true }
 
 [features]
 default = []
 visual-script = ["uwu_visual_script"]
 wasm-sandbox = ["uwu_wasm", "anyhow"]
+http = ["reqwest"]
 
 [dev-dependencies]
 wat = "1"

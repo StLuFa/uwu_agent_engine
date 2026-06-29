@@ -15,11 +15,15 @@ pub use snapshot::SessionSnapshot;
 pub use turn::ConversationTurn;
 
 use agent_character::{Character, CharacterContext};
+use agent_execution::ActionExecutor;
+use agent_memory::{Episode, MemoryFacade};
 use agent_metacognition::{Metacognition, MetaAction};
+use agent_perception::PerceptionPipeline;
 use agent_persona::{Persona, PersonaContext};
 use agent_reaction::{Reaction, ReactionLayer};
+use agent_reasoning::Reasoner;
 use agent_state::AgentState;
-use agent_types_core::AgentId;
+use agent_types_core::{Action, ActionParams, AgentId};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -35,7 +39,7 @@ impl SessionId {
     }
 }
 
-/// Session —— 用户对话会话，持有五维 + 对话管理
+/// Session —— 用户对话会话，持有五维 + 对话管理 + P→M→R→E 管道
 pub struct Session {
     pub session_id: SessionId,
     pub user_id: String,
@@ -47,6 +51,12 @@ pub struct Session {
     pub metacognition: Metacognition,
     pub persona: Persona,
     pub character: Arc<Character>,
+
+    // P→M→R→E 管道
+    pub perception: PerceptionPipeline,
+    pub memory: MemoryFacade,
+    pub reasoner: Box<dyn Reasoner>,
+    pub executor: ActionExecutor,
 
     // 对话管理
     pub history: ConversationHistory,
@@ -78,7 +88,7 @@ impl Session {
         }
 
         // 2. FlowGraph: Perception → Memory → Reasoning → Execution
-        let decision = self.run_flowgraph(&input);
+        let decision = self.run_flowgraph(&input).await;
 
         // 3. Metacognition 评估
         let assessment = self
@@ -94,9 +104,9 @@ impl Session {
             MetaAction::RetryDecision => {
                 // Rollback state and re-reason
                 let checkpoint = self.state.checkpoint();
-                let retry_decision = self.run_flowgraph(&input);
+                let retry_decision = self.run_flowgraph(&input).await;
                 self.state = AgentState::rollback(&checkpoint);
-                let output = self.execute_and_update(retry_decision);
+                let output = self.execute_and_update(retry_decision, raw_input).await;
                 self.record_turn(raw_input, &output, 0.0, &meta_action_str);
                 return output;
             }
@@ -112,8 +122,8 @@ impl Session {
             }
             MetaAction::SwitchStrategy => {
                 // Switch reasoning strategy (degraded mode)
-                let degraded_decision = self.run_flowgraph_degraded(&input);
-                let output = self.execute_and_update(degraded_decision);
+                let degraded_decision = self.run_flowgraph_degraded(&input).await;
+                let output = self.execute_and_update(degraded_decision, raw_input).await;
                 self.record_turn(raw_input, &output, 0.0, &meta_action_str);
                 return output;
             }
@@ -140,7 +150,7 @@ impl Session {
         }
 
         // 5. 执行 + 收集结果
-        let result = self.execute_and_update(decision);
+        let result = self.execute_and_update(decision, raw_input).await;
 
         // 6. Metacognition 在线校准
         let current_state = self.state.clone();
@@ -173,29 +183,80 @@ impl Session {
         }
     }
 
-    fn run_flowgraph(&self, input: &EnrichedInput) -> agent_types_core::Action {
-        // Mock: simulate P→M→R→E pipeline
-        let _ = input;
-        agent_types_core::Action::new(
-            "respond",
-            agent_types_core::ActionParams::new().with("text", "processed"),
-        )
+    /// 真正的 P→M→R→E 管道：
+    /// Perception 解析输入 → Memory 检索相关记忆 → Reasoning 生成 Action
+    async fn run_flowgraph(&mut self, input: &EnrichedInput) -> Action {
+        // 1. Perception: 原始文本 → ContextDescriptor
+        let ctx_desc = self.perception.run(&input.raw).await;
+
+        // 2. Memory: 用上下文描述检索相关记忆
+        let memories = self.memory.retrieve(&ctx_desc.description);
+        let context_str = memories
+            .items
+            .iter()
+            .map(|m| m.content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        // 3. Reasoning: 基于 State + 目标 + 上下文生成 Action
+        let decision = self
+            .reasoner
+            .reason(
+                &self.state,
+                "respond to user",
+                Some(&context_str),
+            )
+            .await;
+
+        // 4. 返回最佳动作（fallback: 空响应）
+        decision.best_action().cloned().unwrap_or_else(|| {
+            Action::new(
+                "respond",
+                ActionParams::new().with("text", "no action generated"),
+            )
+        })
     }
 
-    fn run_flowgraph_degraded(&self, input: &EnrichedInput) -> agent_types_core::Action {
-        let _ = input;
-        agent_types_core::Action::new(
+    /// 降级推理模式（SwitchStrategy 分支使用）
+    async fn run_flowgraph_degraded(&mut self, input: &EnrichedInput) -> Action {
+        let ctx_desc = self.perception.run(&input.raw).await;
+        Action::new(
             "respond_degraded",
-            agent_types_core::ActionParams::new().with("text", "degraded mode"),
+            ActionParams::new().with("text", ctx_desc.description),
         )
     }
 
-    fn execute_and_update(&mut self, action: agent_types_core::Action) -> TurnResult {
+    /// 真正的执行 + 记忆持久化：
+    /// ActionExecutor 执行动作 → apply_action 更新 State → 持久化到 Memory
+    async fn execute_and_update(
+        &mut self,
+        action: Action,
+        raw_input: &str,
+    ) -> TurnResult {
+        let result = self.executor.execute_action(&action, &self.state).await;
         self.state.apply_action(&action);
+
+        // 持久化 State 快照到记忆
+        let snap_json =
+            serde_json::to_string(&self.state.snapshot()).unwrap_or_default();
+        self.memory
+            .persist_state(self.agent_id.to_string(), &snap_json);
+
+        // 巩固 Episode：记录完整的交互回合
+        let episode = Episode::new(
+            self.agent_id.to_string(),
+            "respond to user",
+            &result.output,
+            result.success,
+        )
+        .with_action(action.command.clone())
+        .with_observation(raw_input);
+        self.memory.consolidate(&episode);
+
         TurnResult {
             output: TurnOutput {
-                content: format!("executed: {}", action.command),
-                tokens_used: 0,
+                content: result.output,
+                tokens_used: result.tokens_used,
             },
         }
     }
@@ -261,7 +322,10 @@ pub struct TurnResult {
 mod tests {
     use super::*;
     use agent_character::{Character, Preferences};
+    use agent_execution::ActionExecutor;
+    use agent_memory::MemoryFacade;
     use agent_metacognition::{CalibrationModel, CalibrationResult, Metacognition};
+    use agent_perception::PerceptionPipeline;
     use agent_persona::{Identity, PersonaHistory, RelationshipGraph};
     use agent_reaction::ReactionLayer;
     use agent_state::AgentState;
@@ -278,6 +342,28 @@ mod tests {
                 should_retry: false,
                 reasoning: "ok".into(),
             }
+        }
+    }
+
+    /// 简单的测试用 Reasoner：根据上下文生成响应动作
+    struct SimpleReasoner;
+    #[async_trait]
+    impl Reasoner for SimpleReasoner {
+        async fn reason(
+            &self,
+            _state: &AgentState,
+            _goal: &str,
+            context: Option<&str>,
+        ) -> agent_reasoning::Decision {
+            let text = context.unwrap_or("ok");
+            agent_reasoning::Decision::single(
+                Action::new(
+                    "respond",
+                    ActionParams::new().with("text", text),
+                ),
+                0.8,
+                format!("responding to: {text}"),
+            )
         }
     }
 
@@ -306,6 +392,10 @@ mod tests {
                 core_values: vec![],
                 preferences: Preferences::default(),
             }),
+            perception: PerceptionPipeline::new(),
+            memory: MemoryFacade::new(16),
+            reasoner: Box::new(SimpleReasoner),
+            executor: ActionExecutor::new(),
             history: ConversationHistory::new(),
             intent_tracker: IntentTracker::new(),
             turn_count: 0,
@@ -356,7 +446,7 @@ mod tests {
 
     #[tokio::test]
     async fn integration_full_session_with_all_dimensions() {
-        // Build a complete session with all 5 dimensions wired
+        // Build a complete session with all 5 dimensions + real P→M→R→E pipeline
         let reaction = Arc::new(ReactionLayer::builder().build());
         let metacog = Metacognition::new(
             Box::new(MockCalibrator),
@@ -383,6 +473,10 @@ mod tests {
                 core_values: vec![],
                 preferences: Preferences::default(),
             }),
+            perception: PerceptionPipeline::new(),
+            memory: MemoryFacade::new(16),
+            reasoner: Box::new(SimpleReasoner),
+            executor: ActionExecutor::new(),
             history: ConversationHistory::new(),
             intent_tracker: IntentTracker::new(),
             turn_count: 0,
