@@ -6,11 +6,8 @@ description = "推理域——消费 State + fork()推演沙盒 + Tree-of-Though
 
 [dependencies]
 agent-types-core = { path = "../agent-types-core" }
-agent-types-ext = { path = "../agent-types-ext" }
 agent-state = { path = "../agent-state" }
-agent-mesh = { path = "../agent-mesh" }
-agent-uncertainty = { path = "../agent-uncertainty" }
 async-trait = "0.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["sync", "rt", "macros"] }

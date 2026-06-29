@@ -2,18 +2,14 @@
 name = "agent-memory"
 version = "0.1.0"
 edition = "2024"
-description = "统一记忆——向量 DB + 元数据 DB，四型记忆视图，LearnNode 触发时 Guard 博弈"
+description = "统一记忆 —— 四型记忆视图 + 向量相似检索 + Episode 巩固"
 
 [dependencies]
 agent-types-core = { path = "../agent-types-core" }
-agent-types-ext = { path = "../agent-types-ext" }
 agent-state = { path = "../agent-state" }
-agent-persona = { path = "../agent-persona" }
-agent-mesh = { path = "../agent-mesh" }
-agent-crdt = { path = "../agent-crdt" }
-uwu_database = { path = "../../pkg/uwu_database" }
-async-trait = "0.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4", features = ["serde"] }
-tokio = { version = "1", features = ["full"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+async-trait = "0.1"
+tokio = { version = "1", features = ["sync", "rt", "macros"] }

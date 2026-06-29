@@ -35,10 +35,11 @@
   阶段 2     agent-mesh（Agent 语义事件网格）
   阶段 3a    agent-perception（感知域）
   阶段 3b    agent-memory（统一记忆）
+  阶段 3c    agent-reasoning（推理域）
   阶段 W     agent-wiki（多 Agent 协作知识库）
 
 待 实 施 ─────────────────────────────────────────────────────────────────
-  阶段 3c-e  能力域剩余（reasoning / execution / tools）
+  阶段 3d-e  能力域剩余（execution / tools）
   阶段 4    ██████████████░░░░░░░░░░  Session 主循环（1-2 周）
   阶段 5    ██████████████░░░░░░░░░░  Task + Collaboration（1-2 周）
   阶段 6    ██████████░░░░░░░░░░░░░░  LearnNode（1 周）
@@ -513,30 +514,41 @@ cargo test -p agent-memory   # 10 passed, 0 failed, 0 warnings
 cargo check -p agent-memory  # 0 errors, 0 warnings
 ```
 
-### 5.3 agent-reasoning（3-4 天）
+### 5.3 agent-reasoning ✅（已完成）
+
+> **实施日期：** 2026-06-29 |
+> **测试结果：** 12 passed, 0 failed, 0 warnings |
+> **关联：** 移除了未使用的 agent-types-ext/agent-mesh/agent-uncertainty 依赖
 
 ```
 crates/agent-reasoning/
 ├── Cargo.toml
+├── README.md               // 完整使用文档 + TTS→策略映射表
 └── src/
-    ├── lib.rs              // re-exports
-    ├── reasoner.rs         // Reasoner trait
-    ├── tot.rs              // Tree-of-Thought + beam search
-    ├── sandbox.rs          // fork() 沙盒推演多个候选动作
-    └── strategies.rs       // 推理策略（可根据 TTS 信号切换）
+    ├── lib.rs              // ReasoningInput/Output + tests ✅
+    ├── reasoner.rs         // Decision + Reasoner trait ✅
+    ├── tot.rs              // ToTExplorer + ToTConfig + tests ✅
+    ├── sandbox.rs          // SandboxEvaluator + tests ✅
+    └── strategies.rs       // ReasoningStrategy + tests ✅
 ```
 
 | 任务 | 优先级 | 说明 |
 |---|---|---|
-| ☐ `Reasoner` trait 定义 | P0 | `async fn reason(state, context) -> Decision` |
-| ☐ `Decision` 结构体 | P0 | `candidates: Vec<Action>, scores: Vec<StateScore>, reasoning: String` |
-| ☐ `ToTExplorer` 结构体 | P1 | Beam Search：生成候选 → fork 推演 → 评分 → 剪枝 |
-| ☐ fork 沙盒推演 | P0 | 对每个候选 action：`state.fork() → apply_hypothetical(action) → evaluate()` |
-| ☐ 推理策略切换 | P0 | 根据 TTSSignal：Normal→ToT / Degraded→单步 / Urgent→直接回答 |
-| ☐ 注册为 visual_script NodeDefinition | P0 | `"reasoning.decide"`：Impure + Async |
-| ☐ 单元测试：单步推理 | P0 | |
-| ☐ 单元测试：ToT beam search | P1 | |
-| ☐ 单元测试：TTS 信号 → 策略切换 | P0 | |
+| ✅ `Reasoner` trait 定义 | P0 | `async fn reason(state, goal, context) -> Decision` |
+| ✅ `Decision` 结构体 | P0 | `actions: Vec<Action>, scores: Vec<f32>, reasoning: String` + best_action/best_score |
+| ✅ `ToTExplorer` 结构体 | P1 | Beam Search：生成候选 → fork 推演 → 评分 → 剪枝（beam_width=3, max_depth=4） |
+| ✅ fork 沙盒推演 | P0 | `SandboxEvaluator::evaluate_candidates()`: fork → apply_hypothetical → evaluate |
+| ✅ 推理策略切换 | P0 | `ReasoningStrategy::from_cost_remaining()`: Normal/Degraded/Urgent/Abort + allows_tot/new_tools/should_abort |
+| ⬜ 注册为 visual_script NodeDefinition | P0 | 延后 |
+| ✅ 单元测试：单步推理 | P0 | 12 tests, 0 failed |
+| ✅ 单元测试：ToT beam search | P1 | |
+| ✅ 单元测试：TTS 信号 → 策略切换 | P0 | |
+
+**验收标准（已验证）：**
+```bash
+cargo test -p agent-reasoning   # 12 passed, 0 failed, 0 warnings
+cargo check -p agent-reasoning  # 0 errors, 0 warnings
+```
 
 ### 5.4 agent-execution（2-3 天）
 

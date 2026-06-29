@@ -130,18 +130,14 @@ dependencies = [
 name = "agent-memory"
 version = "0.1.0"
 dependencies = [
- "agent-crdt",
- "agent-mesh",
- "agent-persona",
  "agent-state",
  "agent-types-core",
- "agent-types-ext",
  "async-trait",
  "chrono",
  "serde",
  "serde_json",
  "tokio",
- "uwu_database",
+ "uuid",
 ]
 
 [[package]]
@@ -207,11 +203,8 @@ dependencies = [
 name = "agent-reasoning"
 version = "0.1.0"
 dependencies = [
- "agent-mesh",
  "agent-state",
  "agent-types-core",
- "agent-types-ext",
- "agent-uncertainty",
  "async-trait",
  "serde",
  "serde_json",
