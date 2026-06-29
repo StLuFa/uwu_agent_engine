@@ -80,4 +80,59 @@ impl Task {
             .map(|id| Uuid::parse_str(&id).unwrap_or_else(|_| Uuid::nil()))
             .collect()
     }
+
+    /// 根据完成的 subtask 更新任务进度
+    pub fn update_progress(&mut self) {
+        use crate::SubtaskScheduler;
+
+        let progress = SubtaskScheduler::progress(&self.subtask_dag);
+
+        if SubtaskScheduler::is_complete(&self.subtask_dag) {
+            self.status = TaskStatus::Completed;
+        } else if progress > 0.0 {
+            self.status = TaskStatus::Running;
+        }
+
+        self.updated_at = chrono::Utc::now();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::subtask::{Subtask, SubtaskStatus};
+
+    #[test]
+    fn update_progress_marks_running_when_in_progress() {
+        let mut task = Task::new(
+            Goal {
+                description: "test".into(),
+                success_criteria: vec![],
+                priority: 1,
+            },
+            TaskManifest::default(),
+        );
+        task.status = TaskStatus::Running;
+        let idx = task.subtask_dag.add_node(Subtask::new(0, "t1"));
+        task.subtask_dag.nodes[idx].status = SubtaskStatus::Completed;
+        task.update_progress();
+        // All nodes completed → Completed
+        assert_eq!(task.status, TaskStatus::Completed);
+    }
+
+    #[test]
+    fn update_progress_sets_completed() {
+        let mut task = Task::new(
+            Goal {
+                description: "test".into(),
+                success_criteria: vec![],
+                priority: 1,
+            },
+            TaskManifest::default(),
+        );
+        let idx = task.subtask_dag.add_node(Subtask::new(0, "t1"));
+        task.subtask_dag.nodes[idx].status = SubtaskStatus::Completed;
+        task.update_progress();
+        assert_eq!(task.status, TaskStatus::Completed);
+    }
 }

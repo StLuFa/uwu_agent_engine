@@ -699,13 +699,12 @@ crates/agent-task/
 | ✅ `SettlementPolicy` 结构体 | P0 | Free / FixedPrice / Metered / Auction |
 | ✅ `check_ready()` 实现 | P0 | DAG 拓扑检查可执行 subtask |
 | ✅ `SubtaskScheduler` 实现 | P0 | next_ready() + is_complete() + progress() |
-| ⬜ `update_progress()` 实现 | P0 | 延后（需 State 集成） |
-| ✅ 单元测试：DAG 调度 | P0 | 2 tests, 0 failed |
-| ⬜ 单元测试：SettlementPolicy 计费 | P1 | 延后 |
+| ✅ `update_progress()` 实现 | P0 | 根据 DAG 进度更新 TaskStatus（Running → Completed） |
+| ✅ 单元测试：DAG + update_progress + SettlementPolicy | P0 | 8 tests, 0 failed |
 
 **验收标准：**
 ```bash
-cargo test -p agent-task   # 2 passed, 0 failed
+cargo test -p agent-task   # 8 passed, 0 failed
 cargo check -p agent-task  # 0 errors, 0 warnings
 ```
 
