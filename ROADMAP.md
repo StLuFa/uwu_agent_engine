@@ -863,7 +863,7 @@ crates/agent-sidecar-consolidator/
 | ✅ Guard enforce | P0 | ExtractSkill 前 enforce 检查 |
 | ✅ UnifiedMemory 持久化 | P0 | consolidate(episode) |
 | ✅ Channel-based 长期运行 | P0 | tokio::sync::mpsc 消费 Episode 流，无固定迭代限制 |
-| ⬜ NATS/JetStream 连接 | P0 | 延后（需 agent-mesh 生产集成） |
+| ✅ NATS/JetStream 连接 | P0 | 2026-06-30 — uwu_nats_bridge crate (NatsPublisher + NatsSubscriber)，四通道映射到 NATS subjects，consolidation/monitoring 走 JetStream 持久化 |
 | ⬜ 集成测试端到端 | P0 | 延后（需完整 agent-mesh 通道） |
 
 ### 10.2 agent-sidecar-monitor ✅（已完成）
@@ -887,7 +887,7 @@ crates/agent-sidecar-monitor/
 | ✅ 告警输出 | P1 | drift_detected → 日志摘要 |
 | ✅ Channel-based 长期运行 | P0 | tokio::sync::mpsc 消费 pred_error 流，优雅关闭 |
 | ✅ 单元测试 | P1 | 3 tests（defaults/feed_mean/detect_drift） |
-| ⬜ NATS/JetStream 连接 | P0 | 延后（需 agent-mesh 生产集成） |
+| ✅ NATS/JetStream 连接 | P0 | 2026-06-30 — uwu_nats_bridge crate，monitoring 通道走 JetStream 持久化 |
 | ⬜ 集成测试 | P0 | 延后 |
 
 ---

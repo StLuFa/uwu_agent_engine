@@ -159,6 +159,81 @@ pub fn run_monitor(
     report_rx
 }
 
+/// Run the monitor loop over NATS/JetStream (requires `nats` feature).
+///
+/// Subscribes to `agent.{correlation_id}.monitoring` via JetStream,
+/// deserializes pred_error values, feeds them to the anomaly detector,
+/// and generates periodic reports.
+#[cfg(feature = "nats")]
+pub async fn run_monitor_with_nats(
+    mut detector: AnomalyDetector,
+    nats_url: &str,
+    correlation_id: &str,
+    report_interval_secs: u64,
+) -> Result<(), uwu_nats_bridge::SubscribeError> {
+    use uwu_nats_bridge::{NatsConfig, NatsSubscriber};
+
+    let cfg = NatsConfig::for_sidecar(nats_url, "monitor");
+    let mut sub = NatsSubscriber::connect(cfg, correlation_id).await?;
+
+    let (report_tx, mut report_rx) = tokio::sync::mpsc::channel::<MetacognitiveReport>(16);
+
+    println!(
+        "[monitor] connected to NATS, listening on agent.{}.monitoring",
+        correlation_id
+    );
+
+    tokio::spawn(async move {
+        use tokio::time::{Duration, Instant};
+        let mut last_report = Instant::now();
+        let mut total_events = 0u64;
+
+        loop {
+            tokio::select! {
+                env = sub.recv_monitoring() => {
+                    match env {
+                        Some(env) => {
+                            // pred_error is serialized as a JSON float in the payload_bytes
+                            if let Ok(pred_error) = serde_json::from_slice::<f32>(&env.payload_bytes) {
+                                detector.feed(pred_error);
+                                total_events += 1;
+                            }
+                        }
+                        None => {
+                            println!("[monitor] NATS subscription ended, total events: {total_events}");
+                            break;
+                        }
+                    }
+                }
+                _ = tokio::time::sleep(Duration::from_secs(1)) => {
+                    // Tick — check if it's time to generate a report
+                }
+            }
+
+            if last_report.elapsed().as_secs() >= report_interval_secs {
+                detector.update_baseline();
+                let report = detector.generate_report(report_interval_secs, total_events);
+                println!(
+                    "[monitor] report: {} (drift={})",
+                    report.summary, report.drift_detected
+                );
+                let _ = report_tx.send(report).await;
+                last_report = Instant::now();
+            }
+        }
+    });
+
+    // Collect and print reports on the main task.
+    while let Some(report) = report_rx.recv().await {
+        println!(
+            "[monitor] received report: drift={}, anomalies={}, avg_pred_error={:.3}",
+            report.drift_detected, report.anomaly_count, report.avg_pred_error
+        );
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

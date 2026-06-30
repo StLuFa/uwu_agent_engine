@@ -179,6 +179,45 @@ impl Consolidator {
     pub fn episode_count(&self) -> u64 {
         self.episode_count
     }
+
+    /// Run the consolidator loop over NATS/JetStream (requires `nats` feature).
+    ///
+    /// Subscribes to `agent.{correlation_id}.consolidation` via JetStream,
+    /// deserializes Episodes, and processes them.
+    #[cfg(feature = "nats")]
+    pub async fn run_with_nats(
+        &mut self,
+        nats_url: &str,
+        correlation_id: &str,
+    ) -> Result<(), uwu_nats_bridge::SubscribeError> {
+        use uwu_nats_bridge::{NatsConfig, NatsSubscriber};
+
+        let cfg = NatsConfig::for_sidecar(nats_url, "consolidator");
+        let mut sub = NatsSubscriber::connect(cfg, correlation_id).await?;
+
+        println!(
+            "[consolidator] connected to NATS, listening on agent.{}.consolidation",
+            correlation_id
+        );
+
+        while let Some(env) = sub.recv_consolidation().await {
+            // Deserialize Episode from the envelope payload bytes.
+            let episode: Episode = match serde_json::from_slice(&env.payload_bytes) {
+                Ok(ep) => ep,
+                Err(e) => {
+                    eprintln!("[consolidator] deserialize episode failed: {e}");
+                    continue;
+                }
+            };
+            self.process(&episode).await;
+        }
+
+        println!(
+            "[consolidator] NATS subscription ended, processed {} episodes",
+            self.episode_count
+        );
+        Ok(())
+    }
 }
 
 impl Default for Consolidator {

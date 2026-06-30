@@ -4,6 +4,7 @@ members = [
     # 基础设施（已完成）
     "pkg/uwu_database",
     "pkg/uwu_event_mesh",
+    "pkg/uwu_nats_bridge",
     "pkg/uwu_logger",
     "pkg/uwu_visual_script",
     "pkg/uwu_wasm",

@@ -19,7 +19,11 @@ Consolidation 通道
 ## 运行
 
 ```bash
+# Demo 模式（mock channel）
 cargo run -p agent-sidecar-consolidator
+
+# NATS 生产模式
+cargo run -p agent-sidecar-consolidator --features nats -- --nats nats://localhost:4222 --session "*"
 ```
 
 输出：
@@ -54,8 +58,8 @@ struct Config {
 
 ## 后续集成
 
+- ✅ 接 NATS/JetStream → `uwu_nats_bridge` crate，`run_with_nats()` 方法（feature = "nats"）
 - 接 agent-mesh → 消费真实 consolidation 通道（`FlowReceiver::recv_consolidation()`）
-- 接 NATS/JetStream → 持久化事件队列
 - TypeRegistry 反序列化 Episode
 
 ## 依赖
