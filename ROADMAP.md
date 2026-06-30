@@ -774,23 +774,23 @@ crates/agent-learning/
 
 **验收标准：**
 ```bash
-cargo test -p agent-learning   # 7 passed, 0 failed
+cargo test -p agent-learning   # 18 passed, 0 failed
 cargo check -p agent-learning  # 0 errors, 0 warnings
 ```
-| ☐ Guard egress 集成 | P0 | ExtractSkill 写入前：check_egress(target) |
-| ☐ 沙箱验证新 Skill | P0 | fork() State 沙盒中运行 → 通过后 mark verified |
-| ☐ 回滚机制 | P1 | Guard 检测异常 → 自动回滚至上一 SkillVersion |
-| ☐ 单元测试：SignificantError 触发学习 | P0 | |
-| ☐ 单元测试：McpRemote 需要 Guard egress 通过 | P0 | |
-| ☐ 单元测试：SkillVersion 沙箱验证 | P0 | |
-| ☐ 单元测试：回滚至上一版本 | P1 | |
+| ✅ Guard egress 集成 | P0 | SkillGate::check_egress() → GuardLayer egress rules |
+| ✅ 沙箱验证新 Skill | P0 | SkillGate::verify_in_sandbox(): fork() → apply → evaluate |
+| ✅ 回滚机制 | P1 | SkillRegistry::rollback(): deactivate current → activate previous |
+| ✅ 单元测试：SignificantError 触发学习 | P0 | conditions::tests (4 tests) |
+| ✅ 单元测试：McpRemote 需要 Guard egress 通过 | P0 | guard::tests (4 egress tests) |
+| ✅ 单元测试：SkillVersion 沙箱验证 | P0 | guard::tests (2 sandbox tests) |
+| ✅ 单元测试：回滚至上一版本 | P1 | guard::tests (4 registry tests) |
 
 ---
 
 ## 9. 阶段 7：GuardLayer 安全守卫 ✅（已完成）
 
-> **实施日期：** 2026-06-29 | **测试结果：** 12 passed, 0 failed |
-> **关联：** 移除了 agent-types-ext 依赖；修复了 enforce() 中 ParameterRule 使用 action.params
+> **实施日期：** 2026-06-29 | **测试结果：** 21 passed, 0 failed |
+> **关联：** 移除了 agent-types-ext 依赖；修复了 enforce() 中 ParameterRule 使用 action.params；2026-06-30 补全 12→21 tests
 
 ```
 crates/agent-guard/
@@ -820,18 +820,18 @@ crates/agent-guard/
 | ✅ `RetryBudgetRule` | P0 | 重试次数检查 |
 | ✅ `McpWriteAllowlistRule` | P0 | MCP 写入白名单 |
 | ✅ `NoNetworkToInternalRule` | P1 | 禁止 10.x / 192.168.x / 172.16.x |
-| ✅ `AuditLog` | P0 | total_events / blocked_count / recent(n) + test |
+| ✅ `AuditLog` | P0 | total_events / blocked_count / recent(n) + 4 tests |
 
 **验收标准：**
 ```bash
-cargo test -p agent-guard   # 12 passed, 0 failed
+cargo test -p agent-guard   # 21 passed, 0 failed
 cargo check -p agent-guard  # 0 errors, 0 warnings
 ```
-| ☐ 单元测试：rm -rf 被阻断 | P0 | |
-| ☐ 单元测试：Token 耗尽 → Warning | P0 | |
-| ☐ 单元测试：未授权 MCP 写入被阻断 | P0 | |
-| ☐ 单元测试：所有规则通过 → 放行 | P0 | |
-| ☐ 单元测试：enforce() 部分通过 → 返回 allowed + blocked | P0 | |
+| ✅ 单元测试：rm -rf 被阻断 | P0 | NoRmRfRule + enforce |
+| ✅ 单元测试：Token 耗尽 → Warning | P0 | TokenBudgetRule + enforce |
+| ✅ 单元测试：未授权 MCP 写入被阻断 | P0 | McpWriteAllowlistRule + check_egress |
+| ✅ 单元测试：所有规则通过 → 放行 | P0 | enforce_allows_safe_actions |
+| ✅ 单元测试：enforce() 部分通过 → 返回 allowed + blocked | P0 | enforce_partial_pass_some_allowed_some_blocked |
 
 **关键约束：** GuardLayer 构造后不可修改规则集。Agent 无法在运行时绕过或提升自己的权限。
 

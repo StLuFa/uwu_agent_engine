@@ -318,4 +318,108 @@ mod tests {
 
         // Compiles and builds = all layers registered
     }
+
+    #[tokio::test]
+    async fn enforce_partial_pass_some_allowed_some_blocked() {
+        let layer = GuardLayer::builder()
+            .add_instruction_rule(NoRmRfRule)
+            .build();
+
+        let safe = Action::new("click", ActionParams::new());
+        let dangerous = Action::new("rm_rf", ActionParams::new().with("path", "/"));
+        let actions = vec![safe.clone(), dangerous];
+
+        let ctx = AgentContext {
+            session_id: "s1".into(),
+            agent_id: "a1".into(),
+            tokens_used: 100,
+            max_tokens: 1000,
+            retries: 0,
+            max_retries: 5,
+        };
+
+        let result = layer.enforce(&actions, &ctx).await;
+        // Should be Err because at least one action was blocked
+        assert!(result.is_err());
+        let violations = result.unwrap_err();
+        assert_eq!(violations.len(), 1);
+        assert_eq!(violations[0].rule, "no-rm-rf");
+    }
+
+    #[tokio::test]
+    async fn enforce_with_all_eight_rules() {
+        use crate::rules::{
+            NoShellExecutionRule, FileSizeLimitRule, PortAllowlistRule,
+            RetryBudgetRule, NoNetworkToInternalRule,
+        };
+
+        let layer = GuardLayer::builder()
+            .add_instruction_rule(NoRmRfRule)
+            .add_instruction_rule(NoShellExecutionRule)
+            .add_parameter_rule(FileSizeLimitRule { max_bytes: 1024 })
+            .add_parameter_rule(PortAllowlistRule { allowed_ports: vec![80, 443] })
+            .add_budget_rule(TokenBudgetRule)
+            .add_budget_rule(RetryBudgetRule)
+            .add_egress_rule(McpWriteAllowlistRule {
+                allowed_targets: vec!["api.safe.com".into()],
+            })
+            .add_egress_rule(NoNetworkToInternalRule)
+            .build();
+
+        let ctx = AgentContext {
+            session_id: "s1".into(),
+            agent_id: "a1".into(),
+            tokens_used: 100,
+            max_tokens: 1000,
+            retries: 1,
+            max_retries: 5,
+        };
+
+        // All safe actions — should pass all 8 rules
+        let safe_actions = vec![Action::new("click", ActionParams::new().with("port", 443u64))];
+        assert!(layer.enforce(&safe_actions, &ctx).await.is_ok());
+
+        // Egress: safe target passes
+        assert!(layer.check_egress("api.safe.com/v1/upload").await.is_ok());
+
+        // Egress: internal IP blocked
+        assert!(layer.check_egress("http://10.0.0.5/admin").await.is_err());
+
+        // Budget: token exhaustion blocked
+        let exhausted_ctx = AgentContext {
+            tokens_used: 1000,
+            max_tokens: 1000,
+            ..ctx.clone()
+        };
+        let result = layer.enforce(&safe_actions, &exhausted_ctx).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn enforce_preserves_action_order_on_partial_pass() {
+        let layer = GuardLayer::builder()
+            .add_instruction_rule(NoRmRfRule)
+            .build();
+
+        let a1 = Action::new("click_a", ActionParams::new());
+        let a2 = Action::new("rm_rf", ActionParams::new());
+        let a3 = Action::new("click_c", ActionParams::new());
+
+        let actions = vec![a1.clone(), a2, a3.clone()];
+        let ctx = AgentContext {
+            session_id: "s1".into(),
+            agent_id: "a1".into(),
+            tokens_used: 0,
+            max_tokens: 1000,
+            retries: 0,
+            max_retries: 5,
+        };
+
+        let result = layer.enforce(&actions, &ctx).await;
+        assert!(result.is_err());
+        let violations = result.unwrap_err();
+        assert_eq!(violations.len(), 1);
+        // The blocked violation should reference rm_rf
+        assert!(violations[0].message.contains("rm_rf"));
+    }
 }

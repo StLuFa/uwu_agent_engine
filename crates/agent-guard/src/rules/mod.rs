@@ -243,4 +243,43 @@ mod tests {
         assert!(rule.check_egress("http://192.168.1.1").await.is_some());
         assert!(rule.check_egress("http://google.com").await.is_none());
     }
+
+    #[tokio::test]
+    async fn no_shell_exec_blocks_exec_system_shell() {
+        let rule = NoShellExecutionRule;
+        let a1 = Action::new("exec", ActionParams::new());
+        let a2 = Action::new("system", ActionParams::new());
+        let a3 = Action::new("shell", ActionParams::new());
+        let a4 = Action::new("click_button", ActionParams::new());
+        assert!(rule.check(&a1).await.is_some());
+        assert!(rule.check(&a2).await.is_some());
+        assert!(rule.check(&a3).await.is_some());
+        assert!(rule.check(&a4).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn file_size_limit_blocks_exceeding() {
+        let rule = FileSizeLimitRule { max_bytes: 1024 };
+        let action = Action::new("upload", ActionParams::new().with("size", 2048u64));
+        let params = ActionParams::new().with("size", 2048u64);
+        assert!(rule.check(&action, &params).await.is_some());
+
+        let params_ok = ActionParams::new().with("size", 512u64);
+        assert!(rule.check(&action, &params_ok).await.is_none());
+
+        // No size param → no violation
+        let params_none = ActionParams::new();
+        assert!(rule.check(&action, &params_none).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn retry_budget_blocks_when_exceeded() {
+        let rule = RetryBudgetRule;
+        // retries > max_retries → blocked
+        assert!(rule.check(0, 1000, 6, 5).await.is_some());
+        // retries == max_retries → allowed (check uses > not >=)
+        assert!(rule.check(0, 1000, 5, 5).await.is_none());
+        // retries < max_retries → allowed
+        assert!(rule.check(0, 1000, 3, 5).await.is_none());
+    }
 }

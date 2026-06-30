@@ -93,6 +93,7 @@ dependencies = [
 name = "agent-learning"
 version = "0.1.0"
 dependencies = [
+ "agent-guard",
  "agent-state",
  "agent-types-core",
  "async-trait",

@@ -13,9 +13,11 @@
 //! 5. 配置开关：mcp_skill_write_enabled = false（默认关闭）
 
 pub mod conditions;
+mod guard;
 mod skill;
 mod trigger;
 
+pub use guard::{EgressBlocked, SandboxVerifyError, SkillGate, SkillRegistry};
 pub use skill::{SkillTarget, SkillVersion};
 pub use trigger::{LearnCondition, LearnDecision, LearnTrigger};
 

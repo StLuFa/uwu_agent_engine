@@ -85,4 +85,50 @@ mod tests {
         assert_eq!(log.total_events(), 1);
         assert_eq!(log.blocked_count(), 1);
     }
+
+    #[tokio::test]
+    async fn audit_log_records_pass() {
+        let log = AuditLog::new(None);
+        let action = Action::new("click", ActionParams::new());
+        log.log_pass(&action).await;
+        assert_eq!(log.total_events(), 1);
+        assert_eq!(log.blocked_count(), 0, "pass events should not count as blocked");
+    }
+
+    #[tokio::test]
+    async fn audit_log_mixed_events() {
+        let log = AuditLog::new(None);
+        let safe = Action::new("click", ActionParams::new());
+        let dangerous = Action::new("rm_rf", ActionParams::new());
+        let violations = vec![GuardViolation {
+            rule: "no-rm-rf".into(),
+            level: ViolationLevel::Critical,
+            message: "blocked".into(),
+        }];
+
+        log.log_pass(&safe).await;
+        log.log_guard_hit(&dangerous, &violations).await;
+        log.log_pass(&safe).await;
+
+        assert_eq!(log.total_events(), 3);
+        assert_eq!(log.blocked_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn audit_log_recent_returns_latest_first() {
+        let log = AuditLog::new(None);
+        for i in 0..5u32 {
+            let action = Action::new(
+                format!("op_{i}"),
+                ActionParams::new(),
+            );
+            log.log_pass(&action).await;
+        }
+        let recent = log.recent(3);
+        assert_eq!(recent.len(), 3);
+        // Most recent first (reverse chronological)
+        assert_eq!(recent[0].action_command, "op_4");
+        assert_eq!(recent[1].action_command, "op_3");
+        assert_eq!(recent[2].action_command, "op_2");
+    }
 }
