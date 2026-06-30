@@ -24,10 +24,14 @@
 pub mod page;
 pub mod repo;
 pub mod store;
+#[cfg(feature = "database")]
+pub mod database_store;
 
 pub use page::{PageDiff, PageStatus, WikiPage, WikiPageVersion};
 pub use repo::{WikiRepo, WikiRepoError};
 pub use store::MemoryWikiStore;
+#[cfg(feature = "database")]
+pub use database_store::DatabaseWikiStore;
 
 // ===========================================================================
 // 单元测试（集成场景）

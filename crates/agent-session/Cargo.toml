@@ -19,6 +19,7 @@ agent-mesh = { path = "../agent-mesh" }
 agent-core = { path = "../agent-core" }
 agent-task = { path = "../agent-task" }
 agent-collaboration = { path = "../agent-collaboration" }
+agent-wiki = { path = "../agent-wiki" }
 uwu_event_mesh = { path = "../../pkg/uwu_event_mesh" }
 async-trait = "0.1"
 serde = { version = "1", features = ["derive"] }

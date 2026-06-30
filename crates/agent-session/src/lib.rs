@@ -38,6 +38,7 @@ use agent_reasoning::Reasoner;
 use agent_state::AgentState;
 use agent_task::{Goal, Task, TaskManifest};
 use agent_types_core::{Action, ActionParams, AgentId};
+use agent_wiki::{MemoryWikiStore, WikiPage, WikiRepo};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -76,6 +77,9 @@ pub struct Session {
     // 事件网格（跨进程 + Sidecar 消费）
     pub event_mesh: Option<Arc<AgentMesh>>,
 
+    // Wiki 知识库
+    pub wiki: Option<MemoryWikiStore>,
+
     // 任务 + 协作
     pub active_tasks: Vec<Task>,
     pub task_manifest: TaskManifest,
@@ -104,6 +108,37 @@ impl Session {
     pub fn with_pipeline(mut self, graph: FlowGraph) -> Self {
         self.pipeline_topology = graph;
         self
+    }
+
+    /// Enable wiki knowledge base for this session.
+    pub fn with_wiki(mut self, wiki: MemoryWikiStore) -> Self {
+        self.wiki = Some(wiki);
+        self
+    }
+
+    /// Save a decision as a wiki page for future reference.
+    pub async fn save_to_wiki(&mut self, title: &str, content: &str, category: &str) {
+        if let Some(ref mut wiki) = self.wiki {
+            let mut page = WikiPage::new(
+                title,
+                content,
+                category,
+                &self.agent_id.to_string(),
+            );
+            page.publish();
+            if let Err(e) = wiki.save(&page).await {
+                eprintln!("[session] wiki save failed: {e}");
+            }
+        }
+    }
+
+    /// Search the wiki for relevant knowledge.
+    pub async fn search_wiki(&self, query: &str) -> Vec<WikiPage> {
+        if let Some(ref wiki) = self.wiki {
+            wiki.search(query).await.unwrap_or_default()
+        } else {
+            vec![]
+        }
     }
 
     /// Enable collaboration with the given agent registry.
@@ -545,6 +580,7 @@ mod tests {
             executor: ActionExecutor::new(),
             pipeline_topology: FlowGraph::standard(),
             event_mesh: None,
+            wiki: None,
             active_tasks: Vec::new(),
             task_manifest: TaskManifest::default(),
             agent_registry: AgentRegistry::new(),
@@ -632,6 +668,7 @@ mod tests {
             executor: ActionExecutor::new(),
             pipeline_topology: FlowGraph::standard(),
             event_mesh: None,
+            wiki: None,
             active_tasks: Vec::new(),
             task_manifest: TaskManifest::default(),
             agent_registry: AgentRegistry::new(),

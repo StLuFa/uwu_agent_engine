@@ -11,6 +11,7 @@ pub use negotiate::NegotiationResult;
 pub use registry::{AgentDescriptor, AgentRegistry};
 
 use agent_crdt::{GCounter, LWWRegister, ORSet, PNCounter, VectorClock};
+use agent_wiki::WikiPage;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -184,6 +185,40 @@ impl Collaboration {
     /// Merge peer state into local CRDT state.
     pub fn merge_peer_state(&mut self, peer_state: &SharedState) {
         self.shared_state.merge(peer_state);
+    }
+
+    /// Delegate a wiki page edit to the best-suited peer agent.
+    ///
+    /// Creates a delegation for editing the wiki page, returns the delegation result.
+    pub fn delegate_wiki_edit(
+        &mut self,
+        page: &WikiPage,
+        editor_agent_id: agent_types_core::AgentId,
+    ) -> Option<DelegationResult> {
+        let capability = format!("wiki_edit_{}", page.category);
+        self.delegate(
+            format!("wiki_edit_{}", page.page_id),
+            editor_agent_id,
+            &capability,
+        )
+    }
+
+    /// Delegate wiki page creation to a peer agent.
+    pub fn delegate_wiki_create(
+        &mut self,
+        title: &str,
+        _content: &str,
+        category: &str,
+        from: agent_types_core::AgentId,
+    ) -> Option<DelegationResult> {
+        let task_desc = format!("wiki_create:{title}:{category}");
+        let capability = format!("wiki_create_{category}");
+        // Register this task type as a capability in the shared ORSet.
+        self.shared_state.capabilities.add(
+            capability.clone(),
+            format!("cap_{}", uuid::Uuid::new_v4()),
+        );
+        self.delegate(task_desc, from, &capability)
     }
 }
 
