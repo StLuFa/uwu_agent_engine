@@ -15,9 +15,6 @@ members = [
     "crates/agent-mesh",
     # Agent 五维
     "crates/agent-state",
-    "crates/agent-state-short",
-    "crates/agent-state-mid",
-    "crates/agent-state-long",
     "crates/agent-reaction",
     "crates/agent-metacognition",
     "crates/agent-persona",

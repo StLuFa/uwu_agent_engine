@@ -1,9 +1,0 @@
-[package]
-name = "agent-state-mid"
-version = "0.1.0"
-edition = "2024"
-description = "中程工作状态（独立 crate，可选）—— MidTermWS 精细定义"
-
-[dependencies]
-agent-state = { path = "../agent-state" }
-serde = { version = "1", features = ["derive"] }
