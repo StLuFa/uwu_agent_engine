@@ -81,7 +81,7 @@ impl RelationshipGraph {
             .filter(|(_, r)| r.trust > 0.5)
             .map(|(id, r)| (id.clone(), r.trust))
             .collect();
-        peers.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        peers.sort_by(|a, b| b.1.total_cmp(&a.1));
         peers
     }
 

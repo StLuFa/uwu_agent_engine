@@ -121,7 +121,7 @@ pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
 #[cfg(feature = "vector-simd")]
 fn cosine_simd(a: &[f32], b: &[f32]) -> f32 {
     use wide::f32x8;
-    let n = a.len();
+    let n = a.len().min(b.len()); // Safety: never read past the shorter vector
     let chunks = n / 8;
     let mut dot = f32x8::ZERO;
     let mut na = f32x8::ZERO;

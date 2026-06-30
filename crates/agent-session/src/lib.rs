@@ -105,7 +105,11 @@ impl Session {
                 // Rollback state and re-reason
                 let checkpoint = self.state.checkpoint();
                 let retry_decision = self.run_flowgraph(&input).await;
-                self.state = AgentState::rollback(&checkpoint);
+                self.state = AgentState::rollback(&checkpoint)
+                    .unwrap_or_else(|e| {
+                        eprintln!("[session] checkpoint rollback failed: {e}, continuing with current state");
+                        self.state.clone()
+                    });
                 let output = self.execute_and_update(retry_decision, raw_input).await;
                 self.record_turn(raw_input, &output, 0.0, &meta_action_str);
                 return output;

@@ -29,7 +29,7 @@ pub mod mvcc;
 pub mod short;
 pub mod state;
 
-pub use checkpoint::{StateCheckpoint, rollback};
+pub use checkpoint::{CheckpointError, StateCheckpoint, rollback};
 pub use confidence::ConfidenceMap;
 pub use diff::StateDiff;
 pub use evaluate::{StateScore, evaluate};

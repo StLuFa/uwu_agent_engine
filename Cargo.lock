@@ -84,6 +84,7 @@ dependencies = [
  "agent-types-core",
  "async-trait",
  "chrono",
+ "parking_lot",
  "serde",
  "serde_json",
  "tokio",
@@ -251,6 +252,7 @@ dependencies = [
  "chrono",
  "serde",
  "serde_json",
+ "thiserror 1.0.69",
  "uuid",
 ]
 

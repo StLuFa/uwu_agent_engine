@@ -32,31 +32,31 @@ impl PiiScanner {
                 name: "email",
                 regex: regex::Regex::new(
                     r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
-                ).unwrap(),
+                ).expect("PII regex patterns are compile-time constants — cannot fail"),
             },
             PiiPattern {
                 name: "phone",
                 regex: regex::Regex::new(
                     r"\b\d{3}[-.]?\d{3}[-.]?\d{4}\b"
-                ).unwrap(),
+                ).expect("PII regex patterns are compile-time constants — cannot fail"),
             },
             PiiPattern {
                 name: "ssn",
                 regex: regex::Regex::new(
                     r"\b\d{3}-\d{2}-\d{4}\b"
-                ).unwrap(),
+                ).expect("PII regex patterns are compile-time constants — cannot fail"),
             },
             PiiPattern {
                 name: "credit_card",
                 regex: regex::Regex::new(
                     r"\b\d{4}[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}\b"
-                ).unwrap(),
+                ).expect("PII regex patterns are compile-time constants — cannot fail"),
             },
             PiiPattern {
                 name: "ip_address",
                 regex: regex::Regex::new(
                     r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b"
-                ).unwrap(),
+                ).expect("PII regex patterns are compile-time constants — cannot fail"),
             },
         ];
         Self { strategy, patterns }

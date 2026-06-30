@@ -79,7 +79,7 @@ impl AgentRegistry {
     /// 按信任度排序获取最优 Agent
     pub fn best_for_capability(&self, capability: &str) -> Option<&AgentDescriptor> {
         let mut candidates: Vec<_> = self.find_by_capability(capability);
-        candidates.sort_by(|a, b| b.trust_score.partial_cmp(&a.trust_score).unwrap());
+        candidates.sort_by(|a, b| b.trust_score.total_cmp(&a.trust_score));
         candidates.into_iter().next()
     }
 

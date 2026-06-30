@@ -1,6 +1,7 @@
 //! AgentState struct —— Agent 世界模型核心
 
 use crate::checkpoint::StateCheckpoint;
+use crate::checkpoint::CheckpointError;
 use crate::confidence::ConfidenceMap;
 use crate::diff::StateDiff;
 use crate::evaluate::StateScore;
@@ -199,7 +200,7 @@ impl AgentState {
     }
 
     /// 从检查点恢复
-    pub fn rollback(checkpoint: &StateCheckpoint) -> Self {
+    pub fn rollback(checkpoint: &StateCheckpoint) -> Result<Self, CheckpointError> {
         StateCheckpoint::rollback(checkpoint)
     }
 }
@@ -332,7 +333,7 @@ mod tests {
         state.mid_term.known_facts.push(Fact::new("gravity", "9.8", 0.99));
 
         let checkpoint = state.checkpoint();
-        let restored = AgentState::rollback(&checkpoint);
+        let restored = AgentState::rollback(&checkpoint).unwrap();
 
         assert_eq!(restored.state_id, state.state_id);
         assert_eq!(restored.short_term.version, 42);

@@ -4,7 +4,7 @@ use crate::GuardViolation;
 use agent_types_core::Action;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::sync::Mutex;
+use parking_lot::Mutex;
 
 /// 审计事件
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,7 +29,7 @@ impl AuditLog {
 
     /// 记录一次 Guard 命中
     pub async fn log_guard_hit(&self, action: &Action, violations: &[GuardViolation]) {
-        let mut events = self.events.lock().unwrap();
+        let mut events = self.events.lock();
         events.push(AuditEvent {
             timestamp: Utc::now(),
             action_command: action.command.clone(),
@@ -40,7 +40,7 @@ impl AuditLog {
 
     /// 记录一次通过
     pub async fn log_pass(&self, action: &Action) {
-        let mut events = self.events.lock().unwrap();
+        let mut events = self.events.lock();
         events.push(AuditEvent {
             timestamp: Utc::now(),
             action_command: action.command.clone(),
@@ -51,17 +51,17 @@ impl AuditLog {
 
     /// 总事件数
     pub fn total_events(&self) -> usize {
-        self.events.lock().unwrap().len()
+        self.events.lock().len()
     }
 
     /// 被阻断的事件数
     pub fn blocked_count(&self) -> usize {
-        self.events.lock().unwrap().iter().filter(|e| e.blocked).count()
+        self.events.lock().iter().filter(|e| e.blocked).count()
     }
 
     /// 最近 N 条事件
     pub fn recent(&self, n: usize) -> Vec<AuditEvent> {
-        let events = self.events.lock().unwrap();
+        let events = self.events.lock();
         events.iter().rev().take(n).cloned().collect()
     }
 }

@@ -112,11 +112,20 @@ impl SegmentedStore {
     }
 
     fn current(&self) -> Arc<JsonlStore> {
-        self.segments.read().last().unwrap().store.clone()
+        self.segments
+            .read()
+            .last()
+            .expect("SegmentedStore invariant: at least one segment must exist after construction")
+            .store
+            .clone()
     }
 
     fn current_id(&self) -> u64 {
-        self.segments.read().last().unwrap().id
+        self.segments
+            .read()
+            .last()
+            .expect("SegmentedStore invariant: at least one segment must exist after construction")
+            .id
     }
 
     fn snapshot(&self) -> Vec<Arc<JsonlStore>> {
