@@ -198,14 +198,18 @@ name = "agent-session"
 version = "0.1.0"
 dependencies = [
  "agent-character",
+ "agent-collaboration",
+ "agent-core",
  "agent-execution",
  "agent-memory",
+ "agent-mesh",
  "agent-metacognition",
  "agent-perception",
  "agent-persona",
  "agent-reaction",
  "agent-reasoning",
  "agent-state",
+ "agent-task",
  "agent-types-core",
  "async-trait",
  "chrono",
@@ -213,6 +217,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "uuid",
+ "uwu_event_mesh",
 ]
 
 [[package]]

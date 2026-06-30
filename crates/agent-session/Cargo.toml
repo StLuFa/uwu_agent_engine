@@ -15,6 +15,11 @@ agent-perception = { path = "../agent-perception" }
 agent-memory = { path = "../agent-memory" }
 agent-reasoning = { path = "../agent-reasoning" }
 agent-execution = { path = "../agent-execution" }
+agent-mesh = { path = "../agent-mesh" }
+agent-core = { path = "../agent-core" }
+agent-task = { path = "../agent-task" }
+agent-collaboration = { path = "../agent-collaboration" }
+uwu_event_mesh = { path = "../../pkg/uwu_event_mesh" }
 async-trait = "0.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
