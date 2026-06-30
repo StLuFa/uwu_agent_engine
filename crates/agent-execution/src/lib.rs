@@ -39,7 +39,6 @@ pub trait Executor: Send + Sync {
 pub struct ActionExecutor {
     mcp_client: Option<McpClient>,
     max_parallel_actions: usize,
-    #[allow(dead_code)]
     action_timeout_ms: u64,
 }
 
@@ -48,7 +47,7 @@ impl ActionExecutor {
         Self {
             mcp_client: None,
             max_parallel_actions: 8,
-            action_timeout_ms: 30000,
+            action_timeout_ms: 30_000,
         }
     }
 
@@ -62,23 +61,35 @@ impl ActionExecutor {
         self
     }
 
-    /// 执行单个动作
+    pub fn with_timeout(mut self, ms: u64) -> Self {
+        self.action_timeout_ms = ms;
+        self
+    }
+
+    /// 执行单个动作（带超时保护）
     pub async fn execute_action(
         &self,
         action: &Action,
         _state: &AgentState,
     ) -> ExecutionResult {
         let start = std::time::Instant::now();
+        let timeout = std::time::Duration::from_millis(self.action_timeout_ms);
 
-        // 1. Guard 检查（阶段 7 实现）
-        // 2. MCP 调用（如果配置了）
-        let (success, output) = if let Some(ref mcp) = self.mcp_client {
-            let result = mcp.call_action(action).await;
-            let out = serde_json::to_string(&result.output).unwrap_or_default();
-            (result.success, out)
-        } else {
-            // 无 MCP 客户端 → mock success
-            (true, format!("executed: {}", action.command))
+        let exec_future = async {
+            if let Some(ref mcp) = self.mcp_client {
+                let result = mcp.call_action(action).await;
+                let out = serde_json::to_string(&result.output).unwrap_or_default();
+                (result.success, out)
+            } else {
+                (true, format!("executed: {}", action.command))
+            }
+        };
+
+        let (success, output) = match tokio::time::timeout(timeout, exec_future).await {
+            Ok(result) => result,
+            Err(_elapsed) => {
+                (false, format!("timeout after {}ms", self.action_timeout_ms))
+            }
         };
 
         let elapsed = start.elapsed().as_millis() as u64;

@@ -169,10 +169,10 @@ fn split_sql(sql: &str) -> Vec<String> {
     let mut chars = sql.chars().peekable();
     while let Some(c) = chars.next() {
         cur.push(c);
-        if in_string.is_some() {
+        if let Some(quote) = in_string {
             if c == '\\' {
                 if let Some(next) = chars.next() { cur.push(next); }
-            } else if c == in_string.unwrap() {
+            } else if c == quote {
                 in_string = None;
             }
             continue;

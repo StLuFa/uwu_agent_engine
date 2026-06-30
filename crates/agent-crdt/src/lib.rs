@@ -18,10 +18,31 @@ pub trait CRDTStore: Send + Sync {
 pub struct StateMerger;
 
 impl StateMerger {
-    /// 合并两份状态（先到先得 + 最后写入胜出）
+    /// 合并两份状态：remote 胜出（适合无版本信息的简单场景）。
+    ///
+    /// 如果本地和远端相同，返回本地引用以避免不必要的 clone。
     pub fn merge<T: Clone + PartialEq>(local: &T, remote: &T) -> T {
-        // 简化实现：remote 胜出
-        remote.clone()
+        if local == remote {
+            local.clone()
+        } else {
+            remote.clone()
+        }
+    }
+
+    /// LWW (Last-Writer-Wins) 合并：时钟大的胜出。
+    ///
+    /// 时钟相等时 remote 胜出（打破平局）。
+    pub fn merge_lww<T: Clone>(
+        local: &T,
+        local_version: &CRDTVersion,
+        remote: &T,
+        remote_version: &CRDTVersion,
+    ) -> T {
+        if remote_version.clock >= local_version.clock {
+            remote.clone()
+        } else {
+            local.clone()
+        }
     }
 }
 

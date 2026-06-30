@@ -151,7 +151,10 @@ pub fn run_monitor(
                     "[monitor] report: {} (drift={})",
                     report.summary, report.drift_detected
                 );
-                let _ = report_tx.send(report).await;
+                if report_tx.send(report).await.is_err() {
+                    eprintln!("[monitor] report receiver dropped, stopping");
+                    break;
+                }
                 last_report = Instant::now();
             }
         }
@@ -217,7 +220,10 @@ pub async fn run_monitor_with_nats(
                     "[monitor] report: {} (drift={})",
                     report.summary, report.drift_detected
                 );
-                let _ = report_tx.send(report).await;
+                if report_tx.send(report).await.is_err() {
+                    eprintln!("[monitor] report receiver dropped, stopping");
+                    break;
+                }
                 last_report = Instant::now();
             }
         }

@@ -35,7 +35,6 @@ struct ToTNode {
     action: Action,
     state: AgentState,
     score: f32,
-    depth: usize,
 }
 
 /// Tree-of-Thought 探索器
@@ -74,13 +73,12 @@ impl ToTExplorer {
                     s
                 },
                 score,
-                depth: 0,
             })
             .filter(|n| n.score >= self.config.min_score)
             .collect();
 
         // Sort by score descending, keep top beam_width
-        beam.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+        beam.sort_by(|a, b| b.score.total_cmp(&a.score));
         beam.truncate(self.config.beam_width);
 
         // Iterate depth
@@ -100,14 +98,13 @@ impl ToTExplorer {
                             action,
                             state: new_state,
                             score,
-                            depth,
                         });
                     }
                 }
             }
 
             // Prune to beam_width
-            next_beam.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+            next_beam.sort_by(|a, b| b.score.total_cmp(&a.score));
             next_beam.truncate(self.config.beam_width);
 
             if next_beam.is_empty() {
@@ -117,7 +114,7 @@ impl ToTExplorer {
         }
 
         // Return actions sorted by score
-        beam.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+        beam.sort_by(|a, b| b.score.total_cmp(&a.score));
         beam.into_iter().map(|n| n.action).collect()
     }
 }
