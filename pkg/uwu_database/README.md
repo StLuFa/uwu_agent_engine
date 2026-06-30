@@ -269,6 +269,18 @@ backend = "memory"
 - **向量库**：>10 万行务必建 HNSW（pgvector）或 IVF_PQ（LanceDB），裸表查询会随数据量线性退化
 - **Redis 缓存**：高 QPS 热点 key 启用 `single-flight`，避免缓存重建期击穿后端
 
+## 集成
+
+- 被 agent-memory 消费（可选，`feature = "database"` 启用 VectorStore 后端）
+
+## 测试
+
+```bash
+cargo test -p uwu_database
+```
+
+当前测试：1 个。
+
 ## 部署形态
 
 | 形态 | features | 数据库 | 缓存 | 多租户 |

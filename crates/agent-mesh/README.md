@@ -173,7 +173,11 @@ src/
 cargo test -p agent-mesh
 ```
 
-覆盖：9 种事件 serde 往返、topic 常量验证、TypeRegistry 注册全部类型。
+覆盖(11 tests)：9 种事件 serde 往返、topic 常量验证、TypeRegistry 注册全部类型。
+
+## 被消费
+
+- `agent-session` — 通过 AgentMesh 门面发布/订阅 Agent 事件
 
 ## 依赖
 

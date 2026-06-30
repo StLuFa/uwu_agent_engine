@@ -1122,9 +1122,7 @@ agent-sidecar-consolidator   独立巩固（LearnNode+Guard）
 agent-sidecar-monitor        独立监控
 agent-types-core             基础类型（冻结）
 agent-types-ext              业务类型（可迭代）
-agent-state-short            短程 WS（独立 crate，可选）
-agent-state-mid              中程 WS（独立 crate，可选）
-agent-state-long             长程 WS（独立 crate，可选）
+agent-state                  短/中/长程 WS（合并为单一 crate）
 
 uwu_visual_script            可视化脚本引擎（FlowGraph 执行基础设施）
 uwu_wasm                     WASM 沙箱引擎（Component Model + WASI p2 + 安全策略）
@@ -1143,9 +1141,6 @@ uwu_logger                   日志系统
 | `agent-types-ext` | 业务类型 | — | `types-core` |
 | `agent-reaction` ★ | 反射短路 | `ReactionRule` | `mesh`, `state` |
 | `agent-state` ★ | 短/中/长程 + fork/diff/rollback + MVCC | `AgentState::snapshot/fork/evaluate` | `types-core` |
-| `agent-state-short` | 短程 WS（独立） | `ShortTermWS` | `state` |
-| `agent-state-mid` | 中程 WS（独立） | `MidTermWS` | `state` |
-| `agent-state-long` | 长程 WS（独立） | `LongTermWS` | `state` |
 | `agent-metacognition` ★ | 三信号在线自校准 + TTS | `CalibrationModel`, `TTSSignal` | `mesh`, `state` |
 | `agent-persona` ★ | 身份/关系/履历（MVCC） | `Persona::snapshot` | `types-core` |
 | `agent-character` ★ | 核心价值观+偏好 | `Character::check_core_values` | `types-core` |

@@ -196,6 +196,8 @@ cargo test -p agent-session
 ## 依赖
 
 - `agent-state` + `agent-reaction` + `agent-metacognition` + `agent-persona` + `agent-character` — 五维
+- `agent-mesh` + `agent-core` + `agent-task` + `agent-collaboration` + `agent-wiki` — 会话编排
+- `uwu_event_mesh` — 事件总线
 - `agent-types-core` — AgentId
 - `serde` + `chrono` + `uuid` — 序列化与标识
 

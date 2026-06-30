@@ -48,10 +48,21 @@
   阶段 8b    agent-sidecar-monitor（独立监控进程）
   阶段 W     agent-wiki（多 Agent 协作知识库）
 
+已 完 成 ─────────────────────────────────────────────────────────────────
+  ✅ P0 缺陷修复（7 crash 点消除）
+  ✅ P1 缺陷修复（5 正确性修复）
+  ✅ P2 缺陷修复（3 代码质量）
+  ✅ 结构性断裂修复（mesh/core/task+collab → session）
+  ✅ uwu_database → agent-memory 集成
+  ✅ uwu_nats_bridge 新建（NATS/JetStream 跨进程）
+  ✅ agent-crdt 完整实现（18 tests）
+  ✅ agent-uncertainty 贝叶斯推理（16 tests）
+  ✅ crdt→collab, uncertainty→metacog 接入
+  ✅ wiki→session+collab+database 三路径接入
+  ✅ agent-state-short/mid/long 删除（合并回 agent-state）
+
 待 实 施 ─────────────────────────────────────────────────────────────────
   阶段 9    集成测试 + 性能基准（1-2 周）
-                                  ↑
-                              11-17 周
 ```
 
 ---
@@ -109,9 +120,8 @@
 
 ### 3.1 agent-state ✅（已完成）
 
-> **实施日期：** 2026-06-29 |
 > **测试结果：** 21 passed, 0 failed, 0 warnings |
-> **关联：** agent-types-core（Action/ActionParams/ActionStatus/AgentId/Uncertain/Layer 同步实现）
+> **关联：** agent-types-core（Action/ActionParams/ActionStatus/AgentId/Uncertain/Layer 同步实现，补 0→22 tests）
 
 ```
 crates/agent-state/
@@ -164,7 +174,6 @@ cargo check -p agent-state  # 0 errors, 0 warnings
 
 ### 3.2 agent-reaction ✅（已完成）
 
-> **实施日期：** 2026-06-29 |
 > **测试结果：** 22 passed, 0 failed, 0 warnings |
 > **关联：** 需 tokio `sync + rt + macros` features
 
@@ -219,7 +228,6 @@ cargo check -p agent-reaction  # 0 errors, 0 warnings
 
 ### 3.3 agent-metacognition ✅（已完成）
 
-> **实施日期：** 2026-06-29 |
 > **测试结果：** 16 passed, 0 failed, 0 warnings |
 > **关联：** 需 tokio `sync + rt + macros` features
 
@@ -270,7 +278,6 @@ cargo check -p agent-metacognition  # 0 errors, 0 warnings
 
 ### 3.4 agent-persona ✅（已完成）
 
-> **实施日期：** 2026-06-29 |
 > **测试结果：** 5 passed, 0 failed, 0 warnings
 
 ```
@@ -309,7 +316,6 @@ cargo check -p agent-persona  # 0 errors, 0 warnings
 
 ### 3.5 agent-character ✅（已完成）
 
-> **实施日期：** 2026-06-29 |
 > **测试结果：** 6 passed, 0 failed, 0 warnings
 
 ```
@@ -349,7 +355,6 @@ cargo check -p agent-character  # 0 errors, 0 warnings
 
 ## 4. 阶段 2：agent-mesh Agent 语义包装 ✅（已完成）
 
-> **实施日期：** 2026-06-29 |
 > **测试结果：** 11 passed, 0 failed, 0 warnings |
 > **关联：** 需 uuid 依赖
 
@@ -399,7 +404,6 @@ cargo check -p agent-mesh  # 0 errors, 0 warnings
 
 ### 5.1 agent-perception ✅（已完成）
 
-> **实施日期：** 2026-06-29 |
 > **测试结果：** 13 passed, 0 failed, 0 warnings |
 > **关联：** 需 regex 依赖；移除了未使用的 agent-types-ext、agent-mesh 依赖
 
@@ -434,7 +438,6 @@ cargo check -p agent-perception  # 0 errors, 0 warnings
 
 ### W. agent-wiki ✅（已完成）
 
-> **实施日期：** 2026-06-29 |
 > **测试结果：** 12 passed, 0 failed, 0 warnings |
 > **定位：** 多 Agent 协作的结构化知识库，MVCC 版本化 + 可插拔存储后端
 
@@ -457,23 +460,24 @@ crates/agent-wiki/
 | ✅ `MemoryWikiStore` 实现 | P0 | HashMap 内存存储，标题去重，全文搜索 |
 | ✅ 单元测试 | P0 | 12 tests, 0 failed |
 
-**后续集成：**
-- 接 `uwu_database` 的 VectorStore → 语义检索
-- 接 `agent-crdt` → 多 Agent 无冲突协作编辑
-- 接 `agent-mesh` → wiki 变更事件通知
-- 接 `agent-collaboration` → 委派编辑任务
+**后续集成（全部完成）：**
+- ✅ 接 `uwu_database` → DatabaseWikiStore (feature = "database", 14 tests)
+- ✅ 接 `agent-crdt` → SharedState (ORSet/LWWRegister for wiki edits)
+- ✅ 接 `agent-session` → Session.wiki + save_to_wiki / search_wiki
+- ✅ 接 `agent-collaboration` → delegate_wiki_edit / delegate_wiki_create
 
 **验收标准（已验证）：**
 ```bash
-cargo test -p agent-wiki   # 12 passed, 0 failed, 0 warnings
-cargo check -p agent-wiki  # 0 errors, 0 warnings
+cargo test -p agent-wiki                         # 12 passed, 0 failed
+cargo test -p agent-wiki --features database      # 14 passed, 0 failed
+cargo check -p agent-wiki                        # 0 errors, 0 warnings
+```
 ```
 
 ---
 
 ### 5.2 agent-memory ✅（已完成）
 
-> **实施日期：** 2026-06-29 |
 > **测试结果：** 10 passed, 0 failed, 0 warnings |
 > **关联：** 移除了未使用的 agent-types-ext/agent-persona/agent-mesh/agent-crdt/uwu_database 依赖
 
@@ -520,7 +524,6 @@ cargo check -p agent-memory  # 0 errors, 0 warnings
 
 ### 5.3 agent-reasoning ✅（已完成）
 
-> **实施日期：** 2026-06-29 |
 > **测试结果：** 12 passed, 0 failed, 0 warnings |
 > **关联：** 移除了未使用的 agent-types-ext/agent-mesh/agent-uncertainty 依赖
 
@@ -556,7 +559,6 @@ cargo check -p agent-reasoning  # 0 errors, 0 warnings
 
 ### 5.4 agent-execution ✅（已完成）
 
-> **实施日期：** 2026-06-29 |
 > **测试结果：** 20 passed, 0 failed, 0 warnings |
 > **关联：** 移除了未使用的 agent-types-ext/agent-mesh/agent-tools/uwu_wasm 依赖；需 tokio time feature；新增 wasm-sandbox feature flag
 
@@ -591,7 +593,6 @@ cargo check -p agent-execution                       # 0 errors, 0 warnings
 
 ### 5.5 FlowGraph + FlowEngine ✅（已完成）
 
-> **实施日期：** 2026-06-29 |
 > **测试结果：** 13 passed, 0 failed, 0 warnings |
 > **关联：** 简化了 agent-core 依赖（仅 agent-state + agent-types-core）；FlowGraph 为纯配置层
 
@@ -630,7 +631,6 @@ cargo check -p agent-core  # 0 errors, 0 warnings
 
 ## 6. 阶段 4：Session 主循环编排 ✅（已完成）
 
-> **实施日期：** 2026-06-29 |
 > **测试结果：** 9 passed, 0 failed, 0 warnings |
 > **关联：** 移除了 agent-types-ext/agent-mesh 依赖；Metacognition 改为非 Arc（Session 独占）
 
@@ -675,7 +675,7 @@ cargo check -p agent-session  # 0 errors, 0 warnings
 
 ### 7.1 agent-task ✅（已完成）
 
-> **实施日期：** 2026-06-29 | **测试结果：** 2 passed, 0 failed |
+> **测试结果：** 2 passed, 0 failed |
 > **关联：** 移除了 agent-types-ext/agent-state/agent-mesh/tokio 依赖
 
 ```
@@ -712,7 +712,7 @@ cargo check -p agent-task  # 0 errors, 0 warnings
 
 ### 7.2 agent-collaboration ✅（已完成）
 
-> **实施日期：** 2026-06-29 | **测试结果：** 5 passed, 0 failed |
+> **测试结果：** 5 passed, 0 failed |
 > **关联：** 移除了 agent-types-ext/agent-state/agent-persona/agent-mesh/agent-crdt/dashmap 依赖
 
 ```
@@ -746,7 +746,7 @@ cargo check -p agent-collaboration  # 0 errors, 0 warnings
 
 ## 8. 阶段 6：LearnNode 自学习 ✅（已完成）
 
-> **实施日期：** 2026-06-29 | **测试结果：** 7 passed, 0 failed |
+> **测试结果：** 7 passed, 0 failed |
 > **关联：** 移除了 agent-mesh/agent-guard 依赖
 
 ```
@@ -789,8 +789,8 @@ cargo check -p agent-learning  # 0 errors, 0 warnings
 
 ## 9. 阶段 7：GuardLayer 安全守卫 ✅（已完成）
 
-> **实施日期：** 2026-06-29 | **测试结果：** 21 passed, 0 failed |
-> **关联：** 移除了 agent-types-ext 依赖；修复了 enforce() 中 ParameterRule 使用 action.params；2026-06-30 补全 12→21 tests
+> **测试结果：** 21 passed, 0 failed |
+> **关联：** 移除了 agent-types-ext 依赖；修复了 enforce() 中 ParameterRule 使用 action.params；补全 12→21 tests
 
 ```
 crates/agent-guard/
@@ -844,7 +844,7 @@ cargo check -p agent-guard  # 0 errors, 0 warnings
 
 ### 10.1 agent-sidecar-consolidator ✅（已完成）
 
-> **实施日期：** 2026-06-29 | **状态：** 可编译运行 |
+> **状态：** 可编译运行 |
 > **关联：** 移除了 agent-mesh/uwu_event_mesh 依赖；使用 mock Episode 主循环
 
 ```
@@ -863,12 +863,12 @@ crates/agent-sidecar-consolidator/
 | ✅ Guard enforce | P0 | ExtractSkill 前 enforce 检查 |
 | ✅ UnifiedMemory 持久化 | P0 | consolidate(episode) |
 | ✅ Channel-based 长期运行 | P0 | tokio::sync::mpsc 消费 Episode 流，无固定迭代限制 |
-| ✅ NATS/JetStream 连接 | P0 | 2026-06-30 — uwu_nats_bridge crate (NatsPublisher + NatsSubscriber)，四通道映射到 NATS subjects，consolidation/monitoring 走 JetStream 持久化 |
+| ✅ NATS/JetStream 连接 | P0 | uwu_nats_bridge crate |
 | ⬜ 集成测试端到端 | P0 | 延后（需完整 agent-mesh 通道） |
 
 ### 10.2 agent-sidecar-monitor ✅（已完成）
 
-> **实施日期：** 2026-06-29 | **状态：** 可编译运行，3 tests |
+> **状态：** 可编译运行，3 tests |
 > **关联：** AnomalyDetector + MetacognitiveReport 已提取为公共库
 
 ```
@@ -887,7 +887,7 @@ crates/agent-sidecar-monitor/
 | ✅ 告警输出 | P1 | drift_detected → 日志摘要 |
 | ✅ Channel-based 长期运行 | P0 | tokio::sync::mpsc 消费 pred_error 流，优雅关闭 |
 | ✅ 单元测试 | P1 | 3 tests（defaults/feed_mean/detect_drift） |
-| ✅ NATS/JetStream 连接 | P0 | 2026-06-30 — uwu_nats_bridge crate，monitoring 通道走 JetStream 持久化 |
+| ✅ NATS/JetStream 连接 | P0 | uwu_nats_bridge crate，monitoring 通道走 JetStream 持久化 |
 | ⬜ 集成测试 | P0 | 延后 |
 
 ---
@@ -982,9 +982,18 @@ crates/agent-sidecar-monitor/
                     ├── sidecar-consolidator ← learning+guard+m→sh
                     └── sidecar-monitor ← mesh                │
                                                               │
+                    集成里程碑                              │
+                    ├── mesh/core/task+collab → session       │
+                    ├── uwu_database → agent-memory           │
+                    ├── crdt → agent-collaboration            │
+                    ├── uncertainty → agent-metacognition     │
+                    └── wiki → session+collab+database        │
+                                                              │
                     阶段 9                                   │
                     └── 集成测试 + 性能基准 ← 全部             │
 ```
+
+> **注:** agent-state-short/mid/long 已删除（合并回 agent-state）。全仓现为 30 个 crate。
 
 ---
 

@@ -226,11 +226,12 @@ pub enum PageStatus {
 
 ```
 agent-wiki ── 读 ──▶ agent-state      (版本化模式参考)
-           ── 接 ──▶ uwu_database     (生产存储: VectorStore + PostgreSQL)
+           ── 接 ──▶ uwu_database     (生产存储: DatabaseWikiStore, VectorStore + PostgreSQL)
            ── 接 ──▶ agent-crdt       (多 Agent 无冲突编辑)
            ── 接 ──▶ agent-mesh       (wiki 变更事件: agent.wiki.updated)
            ── 接 ──▶ agent-collaboration (委派编辑任务)
            ── 接 ──▶ agent-guard      (编辑权限控制)
+           ◀── 被 agent-session + agent-collaboration 消费
 ```
 
 ## 目录结构
@@ -249,7 +250,7 @@ src/
 cargo test -p agent-wiki
 ```
 
-覆盖：页面创建/编辑/发布/归档、版本递增、回滚创建新版本、版本差异、全文搜索、标签筛选、标题去重、删除、分页列表、多页面搜索。
+当前测试：12 个（启用 database feature 后 14 个）。覆盖：页面创建/编辑/发布/归档、版本递增、回滚创建新版本、版本差异、全文搜索、标签筛选、标题去重、删除、分页列表、多页面搜索。
 
 ## 依赖
 

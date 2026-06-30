@@ -289,7 +289,7 @@ pub enum VsError {
 cargo test -p uwu_visual_script
 ```
 
-集成测试位于 `tests/integration.rs`：
+当前测试：4 个。集成测试位于 `tests/integration.rs`：
 
 - `library_registers_builtins` — 注册表自检
 - `end_to_end_branch_default_false` — Begin → Branch → Print 完整流

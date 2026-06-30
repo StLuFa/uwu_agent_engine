@@ -230,9 +230,10 @@ src/
 
 ## 后续集成
 
-- 接 `uwu_database::VectorStore` → 生产级向量检索（Qdrant/Pgvector/LanceDB）
-- 接 `uwu_database::Database` → PostgreSQL 元数据查询
+- 接 `uwu_database::VectorStore` → 生产级向量检索（Qdrant/Pgvector/LanceDB），通过 `feature = "database"` 可选启用
+- 接 `uwu_database::Database` → PostgreSQL 元数据查询，通过 `feature = "database"` 可选启用
 - 接外部 embedding 服务 → OpenAI/本地模型替代 mock
+- `uwu_database` 作为可选依赖（`feature = "database"`），供 VectorStore 后端使用
 
 ## 测试
 
@@ -240,7 +241,7 @@ src/
 cargo test -p agent-memory
 ```
 
-覆盖：余弦相似度、mock 嵌入确定性、retrieve 排序、retrieve_typed 过滤、persist_state 往返、Episode 巩固生成多类型记忆、MemoryFacade 便捷接口、空结果处理。
+覆盖(13 tests, 16 with database feature)：余弦相似度、mock 嵌入确定性、retrieve 排序、retrieve_typed 过滤、persist_state 往返、Episode 巩固生成多类型记忆、MemoryFacade 便捷接口、空结果处理。
 
 ## 依赖
 

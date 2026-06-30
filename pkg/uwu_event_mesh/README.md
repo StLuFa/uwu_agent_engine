@@ -612,7 +612,7 @@ src/
 | 1 | SerializedEnvelope + TypeRegistry（跨进程类型安全） | ✅ 已实现 |
 | 2 | FlowHandle 四路通道（main/consolidation/monitoring/system） | ✅ 已实现 |
 | 3 | sequence_number + replay_id（Crash Recovery 基础） | ✅ 已实现 |
-| 4 | NATS Bridge（`NatsBridge` 实现 `Bridge` trait） | ✅ 2026-06-30 — uwu_nats_bridge crate |
+| 4 | NATS Bridge（`NatsBridge` 实现 `Bridge` trait） | ✅ uwu_nats_bridge crate |
 | 5 | Crash Recovery 协议（gap 检测 + 重传 + checkpoint 恢复） | ⬜ 计划中 |
 
 ## 运行示例
@@ -626,10 +626,10 @@ cargo run --example basic
 ## 测试
 
 ```bash
-cargo test
+cargo test -p uwu_event_mesh
 ```
 
-覆盖：topic 匹配、pub/sub、通配、幂等、回放、批量写、索引复用、CRC 崩溃恢复、四种背压、真·DropOldest、跨网格桥接、时间范围裁剪、段式滚动与重启加载、SerializedEnvelope 往返、TypeRegistry 注册/反序列化/拒绝未知类型、FlowHandle 四路通道/序列号单调/recv_any 多路复用/clone 共享。
+当前测试：55 个。覆盖：topic 匹配、pub/sub、通配、幂等、回放、批量写、索引复用、CRC 崩溃恢复、四种背压、真·DropOldest、跨网格桥接、时间范围裁剪、段式滚动与重启加载、SerializedEnvelope 往返、TypeRegistry 注册/反序列化/拒绝未知类型、FlowHandle 四路通道/序列号单调/recv_any 多路复用/clone 共享。
 
 ## License
 

@@ -25,6 +25,8 @@ Agent A                                Agent B
 - **Delegation Lifecycle** — Pending → Accepted → Running → Completed/Failed/TimedOut
 - **Negotiation** — `NegotiationResult`: accepted / rejected / counter_offer
 - **Collaboration Facade** — 封装 registry + pending delegations
+- **SharedState CRDT** — CRDT-based 共享状态同步
+- **Wiki Delegation** — 通过 agent-wiki 进行知识委派
 
 ## 安装
 
@@ -169,6 +171,8 @@ cargo test -p agent-collaboration
 ## 依赖
 
 - `agent-types-core` — AgentId
+- `agent-crdt` — SharedState CRDT 同步
+- `agent-wiki` — Wiki 委派
 - `serde` + `chrono` + `uuid` — 序列化与标识
 - `async-trait` + `tokio` — async 支持
 

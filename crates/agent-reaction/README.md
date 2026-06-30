@@ -219,7 +219,7 @@ src/
 cargo test -p agent-reaction
 ```
 
-覆盖：4 个内置规则各 3-4 个 match/miss 场景、Hit 短路验证、Miss 穿透、统计计数正确性、hit_rate 计算、Builder 规则顺序。
+覆盖(22 tests)：4 个内置规则各 3-4 个 match/miss 场景、Hit 短路验证、Miss 穿透、统计计数正确性、hit_rate 计算、Builder 规则顺序。
 
 ## 与其他维度的关系
 

@@ -44,6 +44,7 @@ w1=0.5, w2=0.3, w3=0.2（可配置）
 - **三信号融合** — verifier + pred_error + cost_remaining，三路独立信号打破单 Verifier 自我闭环
 - **TTS 分级控制** — 不是只有耗尽才停，预算消耗到阈值时主动降级推理策略
 - **概念漂移检测** — `AnomalyDetector` 滑动窗口检测校准分数退化趋势
+- **BayesianCalibrator** — 基于 `agent-uncertainty` 的贝叶斯校准器，融合先验分布与观测结果
 - **InteractionPattern 消费** — 消费 `MidTermWS.recent_pattern`，检测循环模式 → 自动切换策略
 - **在线校准** — `calibrate_with_outcome()` 根据实际结果 EMA 更新预测误差 + 追加校准记录
 - **可配置权重** — `MetaScoreWeights` 三路权重可调
@@ -302,11 +303,12 @@ agent-metacognition ── 读 ──▶ agent-state   (accumulated_pred_error, 
 cargo test -p agent-metacognition
 ```
 
-覆盖：三信号融合公式 + 各 MetaAction 决策（Proceed/Retry/SwitchStrategy/AbortOnBudget/RequestClarification）、TTS 四级分档边界、异常检测器漂移/稳定、calibrate_with_outcome 更新、CalibrationHistory 环形缓冲。
+覆盖(20 tests)：三信号融合公式 + 各 MetaAction 决策（Proceed/Retry/SwitchStrategy/AbortOnBudget/RequestClarification）、TTS 四级分档边界、异常检测器漂移/稳定、calibrate_with_outcome 更新、CalibrationHistory 环形缓冲、BayesianCalibrator 集成。
 
 ## 依赖
 
 - `agent-state` — 读取 pred_error、recent_pattern、budget_consumed
+- `agent-uncertainty` — 贝叶斯先验/后验分布，BayesianCalibrator 后端
 - `agent-types-core` — 基础类型
 - `async-trait` — async trait 支持
 - `serde` + `chrono` — 序列化与时间戳

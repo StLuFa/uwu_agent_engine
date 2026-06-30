@@ -160,6 +160,10 @@ cargo test -p agent-task
 - `agent-types-core` — AgentId
 - `serde` + `chrono` + `uuid` — 序列化与标识
 
+## 被消费
+
+- `agent-session` — 会话编排（TaskManifest / SubtaskDAG / DelegationPolicy）
+
 ## License
 
 与仓库一致。

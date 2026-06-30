@@ -177,7 +177,7 @@ src/
 cargo test -p agent-perception
 ```
 
-覆盖：PII 三种策略 mask/remove/encrypt、contains_pii 检测、无 PII 原文不变、Pipeline 集成遮蔽、`run_parsed()` 结构化输入、ParsedInput 构造。
+覆盖(13 tests)：PII 三种策略 mask/remove/encrypt、contains_pii 检测、无 PII 原文不变、Pipeline 集成遮蔽、`run_parsed()` 结构化输入、ParsedInput 构造。
 
 ## 依赖
 

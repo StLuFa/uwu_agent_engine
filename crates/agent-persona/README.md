@@ -198,7 +198,7 @@ src/
 cargo test -p agent-persona
 ```
 
-覆盖：版本号递增、trust 调整、snapshot、context_injection、trusted_peers 阈值过滤。
+覆盖(5 tests)：版本号递增、trust 调整、snapshot、context_injection、trusted_peers 阈值过滤。
 
 ## 依赖
 

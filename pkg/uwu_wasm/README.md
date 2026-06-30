@@ -187,6 +187,8 @@ session.replay(from, to);            // 重放
 cargo test -p uwu_wasm
 ```
 
+当前测试：0 个（二进制包，无单元测试）。
+
 ---
 
 ## License
