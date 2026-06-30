@@ -62,8 +62,8 @@ impl PiiScanner {
         Self { strategy, patterns }
     }
 
-    /// 扫描文本并遮蔽/加密/移除 PII
-    pub async fn scan_and_mask(&self, text: &mut String) {
+    /// 扫描文本并遮蔽/加密/移除 PII（纯同步，正则匹配 + 字符串替换）
+    pub fn scan_and_mask(&self, text: &mut String) {
         for pattern in &self.patterns {
             let replacement = match self.strategy {
                 PiiStrategy::Mask => format!("[{}]", pattern.name),
@@ -107,7 +107,7 @@ mod tests {
     async fn mask_email() {
         let scanner = PiiScanner::new(PiiStrategy::Mask);
         let mut text = "contact: alice@example.com".to_string();
-        scanner.scan_and_mask(&mut text).await;
+        scanner.scan_and_mask(&mut text);
         assert!(!text.contains("alice@example.com"));
         assert!(text.contains("[email]"));
     }
@@ -116,7 +116,7 @@ mod tests {
     async fn mask_phone() {
         let scanner = PiiScanner::new(PiiStrategy::Mask);
         let mut text = "call 555-123-4567 now".to_string();
-        scanner.scan_and_mask(&mut text).await;
+        scanner.scan_and_mask(&mut text);
         assert!(!text.contains("555-123-4567"));
         assert!(text.contains("[phone]"));
     }
@@ -125,7 +125,7 @@ mod tests {
     async fn remove_pii() {
         let scanner = PiiScanner::new(PiiStrategy::Remove);
         let mut text = "email alice@example.com here".to_string();
-        scanner.scan_and_mask(&mut text).await;
+        scanner.scan_and_mask(&mut text);
         assert!(!text.contains("alice@example.com"));
         assert!(!text.contains("[email]"));
     }
@@ -134,7 +134,7 @@ mod tests {
     async fn encrypt_pii() {
         let scanner = PiiScanner::new(PiiStrategy::Encrypt);
         let mut text = "email alice@example.com".to_string();
-        scanner.scan_and_mask(&mut text).await;
+        scanner.scan_and_mask(&mut text);
         assert!(text.contains("[encrypted:email]"));
     }
 
@@ -150,7 +150,7 @@ mod tests {
         let scanner = PiiScanner::new(PiiStrategy::Mask);
         let mut text = "hello world, no sensitive data here".to_string();
         let original = text.clone();
-        scanner.scan_and_mask(&mut text).await;
+        scanner.scan_and_mask(&mut text);
         assert_eq!(text, original);
     }
 }

@@ -40,7 +40,7 @@ impl PerceptionPipeline {
     pub async fn run(&self, raw_input: &str) -> ContextDescriptor {
         let mut ctx = ContextDescriptor::from_raw(raw_input);
         if let Some(ref scanner) = self.pii_scanner {
-            scanner.scan_and_mask(&mut ctx.description).await;
+            scanner.scan_and_mask(&mut ctx.description);
         }
         ctx
     }
@@ -50,7 +50,7 @@ impl PerceptionPipeline {
         let mut ctx = ContextDescriptor::new(&parsed.text);
         ctx.raw_data = serde_json::to_value(&parsed.fields).unwrap_or_default();
         if let Some(ref scanner) = self.pii_scanner {
-            scanner.scan_and_mask(&mut ctx.description).await;
+            scanner.scan_and_mask(&mut ctx.description);
         }
         ctx
     }

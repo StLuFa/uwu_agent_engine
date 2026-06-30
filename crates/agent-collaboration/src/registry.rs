@@ -68,11 +68,11 @@ impl AgentRegistry {
         self.agents.get(id)
     }
 
-    /// 按能力查找 Agent
+    /// 按能力查找 Agent（零分配查找）
     pub fn find_by_capability(&self, capability: &str) -> Vec<&AgentDescriptor> {
         self.agents
             .values()
-            .filter(|d| d.is_available && d.capabilities.contains(&capability.to_string()))
+            .filter(|d| d.is_available && d.capabilities.iter().any(|c| c == capability))
             .collect()
     }
 

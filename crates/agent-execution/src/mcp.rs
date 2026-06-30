@@ -38,14 +38,16 @@ pub struct McpResult {
 /// - `call_action(&Action) -> McpResult`（兼容旧接口）
 pub struct McpClient {
     registered_tools: Vec<ToolDefinition>,
-    #[cfg_attr(not(feature = "http"), allow(dead_code))]
+    #[cfg(feature = "http")]
     server_url: String,
 }
 
 impl McpClient {
+    #[cfg_attr(not(feature = "http"), allow(unused_variables))]
     pub fn new(server_url: impl Into<String>) -> Self {
         Self {
             registered_tools: Vec::new(),
+            #[cfg(feature = "http")]
             server_url: server_url.into(),
         }
     }
