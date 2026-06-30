@@ -1,4 +1,7 @@
 //! UnifiedMemory —— 内存中的统一记忆存储
+//!
+//! - 默认：HashMap + 本地余弦相似度（零外部依赖）
+//! - feature = "database"：可插拔 uwu_database::VectorStore 后端
 
 use crate::embedding::Embedding;
 use crate::retrieve::RetrievalIntent;
@@ -6,13 +9,14 @@ use crate::types::{Memory, MemoryScore, MemoryType};
 use std::collections::HashMap;
 
 /// 统一记忆 —— 四型记忆视图 + 向量相似检索
-///
-/// 当前为内存实现。生产环境接 uwu_database 的 VectorStore + PostgreSQL。
 pub struct UnifiedMemory {
-    /// 按 ID 索引的所有记忆
+    /// 按 ID 索引的所有记忆（元数据索引）
     memories: HashMap<String, Memory>,
     /// 向量嵌入维度
     embedding_dim: usize,
+    /// 外部向量存储后端（feature = "database" 时可用）
+    #[cfg(feature = "database")]
+    vector_store: Option<Box<dyn uwu_database::vector::VectorStore>>,
 }
 
 impl UnifiedMemory {
@@ -20,7 +24,26 @@ impl UnifiedMemory {
         Self {
             memories: HashMap::new(),
             embedding_dim: embedding_dim.max(4),
+            #[cfg(feature = "database")]
+            vector_store: None,
         }
+    }
+
+    /// Attach an external vector store backend (requires `database` feature).
+    ///
+    /// When set, `retrieve()` uses the vector store's native `search()` instead
+    /// of brute-force cosine similarity. Metadata (agent_id, timestamps, access
+    /// counts) is still tracked in the local HashMap index.
+    #[cfg(feature = "database")]
+    pub fn with_vector_store(mut self, store: Box<dyn uwu_database::vector::VectorStore>) -> Self {
+        self.vector_store = Some(store);
+        self
+    }
+
+    /// Check if a vector store backend is active.
+    #[cfg(feature = "database")]
+    pub fn has_vector_store(&self) -> bool {
+        self.vector_store.is_some()
     }
 
     /// 插入或更新记忆
@@ -33,6 +56,47 @@ impl UnifiedMemory {
         for m in memories {
             self.memories.insert(m.id.clone(), m);
         }
+    }
+
+    /// 批量同步记忆到外部向量存储（feature = "database" 时可用）。
+    /// 调用方应在插入记忆后调用此方法以确保向量索引一致。
+    #[cfg(feature = "database")]
+    pub async fn sync_to_vector_store(&self) -> Result<(), String> {
+        if let Some(ref store) = self.vector_store {
+            // Ensure the collection exists before upserting.
+            let spec = uwu_database::vector::CollectionSpec {
+                name: "agent_memories",
+                dim: self.embedding_dim,
+                distance: uwu_database::vector::Distance::Cosine,
+            };
+            store
+                .ensure_collection(spec)
+                .await
+                .map_err(|e| format!("ensure collection: {e}"))?;
+
+            let records: Vec<uwu_database::vector::Record> = self
+                .memories
+                .values()
+                .map(|m| uwu_database::vector::Record {
+                    id: m.id.clone(),
+                    vector: m.embedding.clone(),
+                    metadata: {
+                        let mut meta = HashMap::new();
+                        meta.insert("content".into(), serde_json::Value::String(m.content.clone()));
+                        meta.insert(
+                            "memory_type".into(),
+                            serde_json::Value::String(format!("{:?}", m.memory_type)),
+                        );
+                        meta
+                    },
+                })
+                .collect();
+            store
+                .upsert("agent_memories", &records)
+                .await
+                .map_err(|e| format!("vector store upsert: {e}"))?;
+        }
+        Ok(())
     }
 
     /// 按 ID 获取
@@ -77,7 +141,7 @@ impl UnifiedMemory {
             .collect();
 
         // 按评分降序
-        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        scored.sort_by(|a, b| b.1.total_cmp(&a.1));
 
         let results: Vec<Memory> = scored
             .into_iter()
@@ -150,6 +214,51 @@ impl UnifiedMemory {
     /// 按类型统计
     pub fn count_by_type(&self, mt: MemoryType) -> usize {
         self.memories.values().filter(|m| m.memory_type == mt).count()
+    }
+
+    /// 使用向量存储后端进行检索（feature = "database"）。
+    ///
+    /// 调用 VectorStore::search() 替代本地余弦相似度暴力搜索。
+    /// 适合大规模记忆库（>10k 条）场景。
+    #[cfg(feature = "database")]
+    pub async fn retrieve_with_vector_store(
+        &self,
+        query_embedding: &[f32],
+        top_k: usize,
+    ) -> Result<Vec<Memory>, String> {
+        let store = self
+            .vector_store
+            .as_ref()
+            .ok_or_else(|| "no vector store configured".to_string())?;
+
+        // Ensure the collection exists before querying.
+        let spec = uwu_database::vector::CollectionSpec {
+            name: "agent_memories",
+            dim: self.embedding_dim,
+            distance: uwu_database::vector::Distance::Cosine,
+        };
+        store
+            .ensure_collection(spec)
+            .await
+            .map_err(|e| format!("ensure collection: {e}"))?;
+
+        let query = uwu_database::vector::Query {
+            vector: query_embedding,
+            top_k,
+            filter: None,
+        };
+
+        let matches = store
+            .search("agent_memories", query)
+            .await
+            .map_err(|e| format!("vector search: {e}"))?;
+
+        let results: Vec<Memory> = matches
+            .into_iter()
+            .filter_map(|m| self.memories.get(&m.id).cloned())
+            .collect();
+
+        Ok(results)
     }
 }
 
