@@ -29,6 +29,7 @@ dependencies = [
 name = "agent-collaboration"
 version = "0.1.0"
 dependencies = [
+ "agent-crdt",
  "agent-types-core",
  "async-trait",
  "chrono",
@@ -140,6 +141,7 @@ version = "0.1.0"
 dependencies = [
  "agent-state",
  "agent-types-core",
+ "agent-uncertainty",
  "async-trait",
  "chrono",
  "serde",
