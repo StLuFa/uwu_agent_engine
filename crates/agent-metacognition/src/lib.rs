@@ -39,7 +39,7 @@ mod history;
 mod tts;
 
 pub use anomaly::AnomalyDetector;
-pub use calibrate::{BayesianCalibrator, CalibrationModel, CalibrationResult};
+pub use calibrate::{BayesianCalibrator, CalibrationModel, CalibrationResult, LocalCalibrator};
 pub use evaluate::{Metacognition, MetacognitiveAssessment, MetaScoreWeights};
 pub use history::{CalibrationHistory, CalibrationRecord};
 pub use tts::{TTSSignal, compute_cost_remaining_from_budget};
