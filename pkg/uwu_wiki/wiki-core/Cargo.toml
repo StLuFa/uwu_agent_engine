@@ -17,3 +17,7 @@ default = []
 backlinks = []
 attachments = []
 versioning = []
+
+[dev-dependencies]
+wiki-testkit = { path = "../wiki-testkit" }
+tokio = { version = "1", features = ["rt", "macros"] }

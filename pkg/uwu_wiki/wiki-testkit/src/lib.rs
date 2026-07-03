@@ -66,8 +66,11 @@ impl WikiStorage for MemoryWikiStorage {
 #[derive(Default)]
 struct MemVectorStore {
     // collection -> id -> (vector, metadata)
-    data: Mutex<HashMap<String, HashMap<String, (Vec<f32>, serde_json::Value)>>>,
+    data: Mutex<HashMap<String, HashMap<String, VectorRecord>>>,
 }
+
+/// 向量记录：(向量, 元数据)。
+type VectorRecord = (Vec<f32>, serde_json::Value);
 
 fn cosine(a: &[f32], b: &[f32]) -> f32 {
     let dot: f32 = a.iter().zip(b).map(|(x, y)| x * y).sum();
@@ -298,8 +301,11 @@ impl LinkStore for MemLinkStore {
 #[derive(Default)]
 struct MemBlobStore {
     // id -> (bytes, content_type, refcount)
-    blobs: Mutex<HashMap<String, (Vec<u8>, String, i64)>>,
+    blobs: Mutex<HashMap<String, BlobRecord>>,
 }
+
+/// blob 存储记录：(bytes, content_type, refcount)。
+type BlobRecord = (Vec<u8>, String, i64);
 
 #[async_trait]
 impl BlobStore for MemBlobStore {
@@ -343,8 +349,11 @@ impl BlobStore for MemBlobStore {
 #[derive(Default)]
 struct MemVersionStore {
     // doc -> ordered (VersionEntry, Document)
-    versions: Mutex<HashMap<String, Vec<(VersionEntry, Document)>>>,
+    versions: Mutex<HashMap<String, Vec<VersionRecord>>>,
 }
+
+/// 版本快照记录：(元信息, 文档全量)。
+type VersionRecord = (VersionEntry, Document);
 
 #[async_trait]
 impl DocVersionStore for MemVersionStore {

@@ -51,21 +51,43 @@ pub fn parse_links(from: &BlockId, text: &str) -> Vec<WikiLink> {
     let bytes = text.as_bytes();
     let mut i = 0;
     while i + 1 < bytes.len() {
-        if bytes[i] == b'[' && bytes[i + 1] == b'[' {
-            if let Some(end) = text[i + 2..].find("]]") {
-                let inner = &text[i + 2..i + 2 + end];
-                links.push(WikiLink {
-                    from: from.clone(),
-                    to: LinkTarget::Broken(inner.to_string()),
-                    anchor_text: inner.to_string(),
-                });
-                i = i + 2 + end + 2;
-                continue;
-            }
+        if bytes[i] == b'['
+            && bytes[i + 1] == b'['
+            && let Some(end) = text[i + 2..].find("]]")
+        {
+            let inner = &text[i + 2..i + 2 + end];
+            links.push(WikiLink {
+                from: from.clone(),
+                to: LinkTarget::Broken(inner.to_string()),
+                anchor_text: inner.to_string(),
+            });
+            i = i + 2 + end + 2;
+            continue;
         }
         i += 1;
     }
     links
+}
+
+/// 把 `Broken(name)` 链接解析为真实目标。
+///
+/// `resolver` 输入链接内文本（`[[...]]` 里的字符串），返回命中的目标；
+/// 返回 `None` 则保持 `Broken`（由 Lint 后续处理）。非 `Broken` 链接原样保留。
+///
+/// 约定：链接文本形如 `"DocTitle"` 解析为 [`LinkTarget::Doc`]，
+/// `"DocTitle#block-id"` 解析为 [`LinkTarget::Block`]——具体由 `resolver` 决定，
+/// 本函数只负责遍历替换，不内嵌命名约定。
+pub fn resolve_links<F>(links: &mut [WikiLink], mut resolver: F)
+where
+    F: FnMut(&str) -> Option<LinkTarget>,
+{
+    for link in links.iter_mut() {
+        if let LinkTarget::Broken(name) = &link.to
+            && let Some(target) = resolver(name)
+        {
+            link.to = target;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -85,5 +107,21 @@ mod tests {
     fn parse_no_links() {
         let from = BlockId::new();
         assert!(parse_links(&from, "plain text, no links").is_empty());
+    }
+
+    #[test]
+    fn resolve_broken_to_doc() {
+        let from = BlockId::new();
+        let mut links = parse_links(&from, "see [[Rust Async]] and [[Missing]]");
+        resolve_links(&mut links, |name| {
+            if name == "Rust Async" {
+                Some(LinkTarget::Doc(DocId("doc-1".into())))
+            } else {
+                None
+            }
+        });
+        assert_eq!(links[0].to, LinkTarget::Doc(DocId("doc-1".into())));
+        // 未命中的保持 Broken。
+        assert_eq!(links[1].to, LinkTarget::Broken("Missing".into()));
     }
 }
