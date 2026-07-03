@@ -41,6 +41,27 @@
 
 ---
 
+## 1.5 内部模块化解耦原则（破坏性修正）
+
+> 现设计存储注入(§10)做得干净,但内部仍有三处耦合缺陷会阻碍独立发布与单测。本节立约束并给出破坏性修正。
+
+**缺陷 1：LLM 调用硬绑 agent-core。** §7 文档 RAG 管道写死"→ agent-core LLM 调用",wiki-llm 因此强依赖引擎,无法作为通用库独立发布,单测必须起真实 LLM。
+- **修正**：wiki-llm 依赖注入的 `LlmClient` trait（复用 `agent-context-db` 已定义的同名 trait,同一抽象不重复造),由调用方在构造期注入。wiki-llm 内部零 `use agent_core`。单测注入 mock LlmClient。
+
+**缺陷 2：wiki-core 内嵌 storage 实现。** §10.2 把 `MemoryWikiStorage` 放在 `wiki-core/src/storage/`,让"零外部依赖的纯 Block 引擎"混入了存储职责,破坏 wiki-core 的纯粹性。
+- **修正**：`wiki-core` 只留 `WikiStorage`/`DocStore`/`OpLog`/`VectorStore` 的 **trait 定义**(端口),不含任何实现。`MemoryWikiStorage` 移到独立 `wiki-testkit` crate（dev-dependency),生产与测试都不污染核心。
+
+**缺陷 3：wiki-llm 反向知道 table/graph 领域类型。** `LlmDocAction` / `LlmGraphAction` 把三个领域(文档/表格/图)的动作枚举塞进 wiki-llm,使横切层反向依赖具体领域,违反单向依赖。
+- **修正**：wiki-llm 只定义领域无关的 `LlmCapability` 端口(embed / search / complete / qa / summarize,输入输出均为通用 `TextUnit { id, text, path }`)。各领域(table/graph)在**自己的 crate**里把领域实体适配成 `TextUnit` 并调用 wiki-llm 端口。wiki-llm 不再 `use` 任何领域类型。
+
+**四条硬约束（编译期由 crate 边界强制）**：
+1. **端口/适配器**：每个 crate 对外只暴露 trait(端口);后端/引擎是适配器,构造期注入。
+2. **单向依赖**：`wiki-core`(纯) ← `wiki-llm`/`wiki-table`/`wiki-graph`/`wiki-collab` ← 调用方。横切层不得反向依赖领域层。
+3. **依赖倒置**：`LlmClient`/`WikiStorage` 全 trait 注入,任何 crate 不 `use` 引擎或存储的具体 struct。
+4. **核心纯粹性**：`wiki-core` 除 serde/uuid/chrono 零依赖,不含存储实现、不含 LLM 调用。
+
+---
+
 ## 2. 架构全景
 
 ```
@@ -142,6 +163,39 @@ pub enum Op {
     UpdateDocMeta { doc_id: DocId, patch: serde_json::Value },
 }
 ```
+
+### 4.1 双向链接与反向引用（补充 #2）
+
+Block 正文可含 `[[wiki-link]]` 引用其它文档/Block。核心维护一张**引用图**,支撑 backlinks（"哪些页面引用了本页"）——这是 LLM 做知识关联的关键信号,也是现代 wiki 的核心能力。
+
+```rust
+/// 页面内联引用（解析自 [[target]] 语法或显式 mention）
+pub struct WikiLink {
+    pub from: BlockId,          // 引用发起 Block
+    pub to: LinkTarget,         // 引用目标
+    pub anchor_text: String,    // 显示文本
+}
+
+pub enum LinkTarget {
+    Doc(DocId),
+    Block(DocId, BlockId),
+    Broken(String),            // 悬空引用（目标不存在），Lint 可修复
+}
+
+/// 引用图：正向 + 反向双索引，wiki-core 维护
+pub trait LinkGraph: Send + Sync {
+    /// 本 Block/Doc 引用了谁（正向）
+    fn outbound(&self, from: BlockId) -> Vec<WikiLink>;
+    /// 谁引用了本 Doc/Block（反向，即 backlinks）
+    fn backlinks(&self, target: &LinkTarget) -> Vec<WikiLink>;
+    /// 全库悬空引用（供 Lint 审计）
+    fn broken_links(&self) -> Vec<WikiLink>;
+}
+```
+
+- 链接在 `UpdateBlock`/`InsertBlock` 时由核心解析并增量更新引用图,不额外走 LLM。
+- 删除目标 Block 时,指向它的链接自动标记为 `Broken`,由 §8.4 Lint 的 `missing_page` 流程处理。
+- 引用图持久化走 `WikiStorage`,新增 `link_store()` 端口（见 §10.1）。
 
 ---
 
@@ -320,45 +374,72 @@ NodeInsert / NodeUpdate Op
 
 ## 7. LLM 横切层 wiki-llm
 
-统一覆盖文档 Block、表格行、图节点三类实体，不重复实现。
+统一覆盖文档 Block、表格行、图节点三类实体,不重复实现。
+
+> **解耦要点(见 §1.5 缺陷 3)**：wiki-llm **只认领域无关的 `TextUnit`**,不 `use` 文档/表格/图的具体类型。各领域 crate 负责把自己的实体适配成 `TextUnit` 再调用本层端口。LLM 后端由注入的 `LlmClient` 提供,wiki-llm 不依赖 agent-core。
+
+```rust
+/// 领域无关的文本单元——三类实体(Block/表格行/图节点)统一适配成它
+pub struct TextUnit {
+    pub id: String,        // 领域实体 ID 的字符串化(BlockId/RowId/NodeId)
+    pub text: String,      // 待处理文本
+    pub path: Vec<String>, // 溯源路径(doc→block / table→row / graph→node)
+}
+
+/// LLM 能力端口——领域无关,输入输出均为 TextUnit
+#[async_trait]
+pub trait LlmCapability: Send + Sync {
+    async fn embed(&self, units: &[TextUnit]) -> Result<Vec<Vec<f32>>>;
+    async fn search(&self, query: &str, top_k: usize) -> Result<Vec<(TextUnit, f32)>>;
+    async fn complete(&self, unit: &TextUnit, partial: &str) -> Result<String>;
+    async fn qa(&self, question: &str, scope_root: Option<&str>) -> Result<QaAnswer>;
+    async fn summarize(&self, units: &[TextUnit]) -> Result<String>;
+}
+```
 
 ```
 wiki-llm/src/
-├── action.rs      LlmDocAction / LlmGraphAction 统一调度入口
-├── embed.rs       Block / GraphNode embedding 增量生成（diff_embed）
-├── search.rs      语义搜索（向量 + BM25 混合，hybrid_search）
+├── capability.rs  LlmCapability 端口 + TextUnit（领域无关）
+├── llm_client.rs  依赖注入的 LlmClient trait（复用 agent-context-db 同名抽象）
+├── embed.rs       增量 embedding（diff_embed，输入 TextUnit）
+├── search.rs      语义搜索（向量 + BM25 混合，VectorStore 注入）
 ├── complete.rs    行内补全
-├── qa.rs          RAG 问答（文档 Block 版本）
-├── summarize.rs   文档 / 选区摘要
+├── qa.rs          RAG 问答
+├── summarize.rs   摘要
 ├── rewrite.rs     改写（风格 / 长度 / 语言）
 ├── tag.rs         自动打标签 / 分类
 └── lib.rs
 ```
 
-### LlmDocAction
+> 已删除原 `action.rs` 里的 `LlmDocAction`/`LlmGraphAction` 领域枚举——那是反向依赖领域层的耦合点。领域动作在各自 crate 内定义,统一走 `LlmCapability` 端口。
+
+### RAG 检索的权限过滤（补充 #3，安全红线）
+
+> **越权泄露风险**：原 RAG 管线直接把向量命中的 Block 喂给 LLM,未经权限校验,会把用户无权访问的 Block 内容泄露进答案。检索路径必须内置权限过滤。
+
+```
+用户问题 + RequestContext { user_id, roles }
+  → wiki-llm::search（向量 + BM25，召回候选 Block）
+  → ★ 权限过滤：对每个候选 Block 调 wiki-collab::permission
+       PermissionFilter::can_read(user, block) → 剔除无权 Block
+  → 过滤后候选构建 context prompt（仅授权内容进 LLM）
+  → LlmClient 调用
+  → 返回答案 + 引用（引用列表同样只含授权 Block）
+```
 
 ```rust
-pub enum LlmDocAction {
-    Ask        { question: String, doc_id: Option<DocId> },
-    Search     { query: String, top_k: usize },
-    Summarize  { scope: DocScope },
-    Complete   { block_id: BlockId, partial: String },
-    Rewrite    { block_id: BlockId, style: RewriteStyle },
-    AutoTag    { doc_id: DocId },
-    Embed      { block_ids: Vec<BlockId> },   // 手动触发 embedding
+/// 检索层权限端口——由 wiki-collab::permission 实现，检索管线注入
+#[async_trait]
+pub trait PermissionFilter: Send + Sync {
+    async fn can_read(&self, ctx: &RequestContext, block_id: &str) -> bool;
+    /// 批量过滤，检索热路径用（避免逐条 await）
+    async fn filter_readable(&self, ctx: &RequestContext, block_ids: Vec<String>) -> Vec<String>;
 }
 ```
 
-### 文档 RAG 管道
-
-```
-用户问题
-  → wiki-llm::search（向量 + BM25 混合，VectorStore 注入）
-  → 按相关度排序 Block 片段（top-k，带 BlockId 溯源）
-  → 构建 context prompt（文档标题 + Block 路径 + 内容）
-  → agent-core LLM 调用
-  → 返回答案 + 引用 BlockId 列表（可点击跳转）
-```
+- 过滤发生在 **prompt 构建之前**,无权 Block 绝不进入 LLM 上下文,也不出现在引用溯源里。
+- 批量 `filter_readable` 在向量召回后、rerank 前执行,避免逐条 await 拖慢热路径。
+- 此端口由 `wiki-collab` 的 `SpaceRole` + Block 级权限实现,检索层只依赖 trait,不 `use` 权限具体类型（遵守 §1.5 单向依赖）。
 
 ### Embedding 增量维护（文档）
 
@@ -367,7 +448,7 @@ Block 创建 / 更新
   → wiki-llm::embed::diff_embed()
       仅重算变更 Block 及其父路径（其余 Block embedding 不变）
   → upsert → VectorStore（注入实例，collection: "wiki_blocks"）
-  → 更新 Block.embedding 字段
+  → 更新 Block.embedding 字段 + embedding_version（见 §15.3 陈旧检测）
 ```
 
 ---
@@ -664,6 +745,55 @@ pub trait WikiStorage: Send + Sync + 'static {
     fn doc_store(&self) -> Arc<dyn DocStore>;
     /// Op 日志持久化（append / replay）
     fn op_log(&self) -> Arc<dyn OpLog>;
+    /// 全文倒排索引（精确关键词检索，补充 #1）
+    fn text_index(&self) -> Arc<dyn TextIndex>;
+    /// 引用图持久化（backlinks，补充 #2）
+    fn link_store(&self) -> Arc<dyn LinkStore>;
+    /// 二进制附件存储（补充 #4）
+    fn blob_store(&self) -> Arc<dyn BlobStore>;
+    /// 文档版本快照（历史浏览 / diff / 回滚，补充 #5）
+    fn version_store(&self) -> Arc<dyn DocVersionStore>;
+}
+
+/// 端口：全文倒排索引（#1）——正文精确关键词/短语检索，补语义检索之短
+#[async_trait]
+pub trait TextIndex: Send + Sync {
+    async fn index_block(&self, block_id: &str, text: &str, meta: serde_json::Value) -> Result<()>;
+    /// 精确/前缀/短语查询，返回 BlockId + 命中片段
+    async fn search(&self, query: &TextQuery, top_k: usize) -> Result<Vec<TextHit>>;
+    async fn remove(&self, block_id: &str) -> Result<()>;
+}
+
+/// 端口：引用图持久化（#2）——承载 §4.1 LinkGraph
+#[async_trait]
+pub trait LinkStore: Send + Sync {
+    async fn upsert_links(&self, from: &str, links: &[WikiLink]) -> Result<()>;
+    async fn backlinks(&self, target: &str) -> Result<Vec<WikiLink>>;
+    async fn broken_links(&self) -> Result<Vec<WikiLink>>;
+}
+
+/// 端口：二进制附件（#4）——图片/文件 blob，带引用计数 GC
+#[async_trait]
+pub trait BlobStore: Send + Sync {
+    async fn put(&self, bytes: Vec<u8>, content_type: &str) -> Result<BlobId>;
+    async fn get(&self, id: &BlobId) -> Result<(Vec<u8>, String)>;
+    /// Block 引用变化时更新引用计数；归零由 GC 异步回收
+    async fn ref_delta(&self, id: &BlobId, delta: i32) -> Result<u64>;
+    async fn gc(&self) -> Result<usize>;   // 回收 refcount=0 的孤儿 blob
+}
+
+/// 端口：文档版本快照（#5）——用户级历史浏览/比较/回滚
+/// 注意：与 agent-context-db MVCC 分层——此为 wiki 领域版本，
+/// OpLog 是 CRDT 回放用，二者不同。version_store 存的是可读版本快照。
+#[async_trait]
+pub trait DocVersionStore: Send + Sync {
+    /// 提交一次快照（Op 累积到阈值 / 手动保存点时触发）
+    async fn snapshot(&self, doc_id: &str, doc: &Document, label: Option<String>) -> Result<VersionId>;
+    async fn list_versions(&self, doc_id: &str) -> Result<Vec<VersionEntry>>;
+    async fn get_version(&self, doc_id: &str, v: VersionId) -> Result<Document>;
+    /// 结构化 diff（Block 级增/删/改）
+    async fn diff(&self, doc_id: &str, a: VersionId, b: VersionId) -> Result<DocDiff>;
+    async fn restore(&self, doc_id: &str, v: VersionId) -> Result<()>;   // 回滚=以旧版为内容提交新版
 }
 
 /// WikiSpace 初始化时注入存储
@@ -678,15 +808,21 @@ impl WikiSpace {
 }
 ```
 
-### 10.2 内置参考实现（仅用于测试/开发）
+> **端口扩展说明**：新增的 4 个端口(`TextIndex`/`LinkStore`/`BlobStore`/`DocVersionStore`)与原有 3 个一样,只是 trait 定义在 `wiki-core`,实现由宿主注入。`agent-context-db` 的 `ContextDbWikiStorage` 复用其 PG(text_index 走 PG 全文索引 tsvector / blob 走 AGFS 内容层 / version 走 MVCC / link 走 PG 表)+ Qdrant,不引入新的存储系统。`wiki-testkit` 的内存实现同步提供全部 7 个端口的 HashMap 版。
+
+### 10.2 参考实现移出核心（破坏性,见 §1.5 缺陷 2）
+
+> `wiki-core` 只含 `WikiStorage`/`DocStore`/`OpLog`/`VectorStore` 的 **trait 定义**,不含任何实现,以保持"零依赖纯 Block 引擎"的纯粹性。
+
+`MemoryWikiStorage`(HashMap + 内存向量)移到独立 crate:
 
 ```
-wiki-core/src/storage/
-├── memory.rs    MemoryWikiStorage（HashMap + 内存向量，无持久化）
-└── mod.rs
+wiki-testkit/src/           # 独立 crate，仅作 dev-dependency
+├── memory_storage.rs   MemoryWikiStorage（测试/开发用内存实现）
+└── lib.rs
 ```
 
-生产环境不使用内置实现；由 `agent-context-db` 或其他宿主注入真实后端。
+生产环境由 `agent-context-db` 注入真实后端;测试环境依赖 `wiki-testkit`。二者都不进 `wiki-core`。
 
 ### 10.3 与 agent-context-db 的集成方式
 
@@ -738,6 +874,10 @@ pub trait VectorStore: Send + Sync {
 | `wiki.query.write_back` | QueryPipeline | wiki-core | 答案反写触发 |
 | `wiki.lint.completed` | WikiLinter | 调用方 | 携带 LintReport |
 | `wiki.lint.missing_page` | WikiLinter | IngestPipeline | 发现缺页，可触发自动创建 |
+| `wiki.block.linked` | wiki-core | LinkStore | Block 引用变化 → 更新引用图（backlinks，#2） |
+| `wiki.blob.orphaned` | wiki-core | BlobStore GC | Block 删除致附件引用归零 → 待 GC（#4） |
+| `wiki.doc.snapshot` | wiki-core | DocVersionStore | Op 累积到阈值/手动保存点 → 版本快照（#5） |
+| `wiki.embed.stale` | wiki-llm | LLM Worker | 检索命中 embedding_version 落后 → 触发重算（#8） |
 
 ---
 
@@ -746,24 +886,30 @@ pub trait VectorStore: Send + Sync {
 ```
 pkg/uwu_wiki/
 ├── Cargo.toml       workspace member，re-export 常用类型
-├── wiki-core/       Block / Document / Op / Registry / MemoryWikiStorage（测试用）
-├── wiki-table/      智能表格（依赖 wiki-core, uwu_visual_script）
-├── wiki-graph/      流程图 / 思维导图 + 全套 LLM（依赖 wiki-core）
-├── wiki-llm/        LLM 横切层 + LLM Wiki 工作流（依赖 wiki-core）
+├── wiki-core/       Block / Document / Op / Registry + 全部存储/LLM trait 定义（零依赖，无实现）
+├── wiki-testkit/    MemoryWikiStorage 等参考实现（dev-dependency，不进生产）
+├── wiki-table/      智能表格（依赖 wiki-core, uwu_visual_script；自适配 TextUnit 调 wiki-llm）
+├── wiki-graph/      流程图 / 思维导图（依赖 wiki-core；自适配 TextUnit 调 wiki-llm）
+├── wiki-llm/        LLM 横切层（领域无关 LlmCapability + TextUnit；LlmClient 注入，不依赖 agent-core）
+├── wiki-workflow/   LLM Wiki 工作流 Ingest/Query/Lint（依赖 wiki-core + wiki-llm 端口）
 └── wiki-collab/     CRDT 协作（依赖 wiki-core, agent-crdt, uwu_event_mesh）
 ```
 
 | Crate | Feature | 说明 |
 |---|---|---|
-| `wiki-core` | `default` | 纯 Block 引擎，零外部依赖 |
-| `wiki-core` | `memory-storage` | MemoryWikiStorage（测试/开发用） |
+| `wiki-core` | `default` | 纯 Block 引擎 + trait 定义，零外部依赖，**无存储/LLM 实现** |
+| `wiki-testkit` | - | 参考内存实现，仅 dev-dependency |
 | `wiki-table` | `formula` | 启用 uwu_visual_script 公式引擎 |
-| `wiki-table` | `llm-fill` | 启用 LLM 列（依赖 wiki-llm） |
-| `wiki-graph` | `llm` | 启用 wiki-graph::llm 全套 LLM 能力 |
+| `wiki-table` | `llm-fill` | 启用 LLM 列（依赖 wiki-llm 端口） |
+| `wiki-graph` | `llm` | 启用图 LLM 能力（经 TextUnit 适配调 wiki-llm） |
 | `wiki-graph` | `llm-qa` | 仅启用图 RAG 问答（llm 的子集） |
 | `wiki-graph` | `export` | 启用 SVG / PNG / Mermaid / PlantUML 导出 |
 | `wiki-llm` | `hybrid-search` | 向量 + BM25 混合检索 |
-| `wiki-llm` | `llm-workflow` | 启用 Ingest / Query / Lint 工作流管线（**通用能力，agent-context-db 直接依赖**） |
+| `wiki-llm` | `full-text` | 全文倒排精确检索（#1，TextIndex 端口） |
+| `wiki-workflow` | `default` | Ingest / Query / Lint 工作流管线（**通用能力，agent-context-db 直接依赖**） |
+| `wiki-core` | `backlinks` | 双向链接引用图（#2，LinkGraph + LinkStore 端口） |
+| `wiki-core` | `attachments` | 二进制附件 + 引用计数 GC（#4，BlobStore 端口） |
+| `wiki-core` | `versioning` | 文档版本快照/diff/回滚（#5，DocVersionStore 端口） |
 
 ---
 
@@ -771,21 +917,28 @@ pkg/uwu_wiki/
 
 ```
                       wiki-core
-                    (零外部依赖)
-                   /     |      \
-                  /      |       \
-           wiki-table  wiki-graph  wiki-collab
-               |          |           |
-        uwu_visual   wiki-llm      agent-crdt
-          _script        |        uwu_event_mesh
-                    WikiStorage
-                      (trait)
-                         ↑
-                    外部注入（调用方实现）
-                    例：agent-context-db
+              (零外部依赖 + 全部 trait 定义)
+             /      |        |        \        \
+            /       |        |         \        \
+     wiki-table  wiki-graph  wiki-llm  wiki-collab  wiki-workflow
+         |          |         |          |            |
+   uwu_visual   (适配      LlmClient   agent-crdt   依赖 wiki-llm
+     _script    TextUnit   (注入)     uwu_event     端口 + wiki-core
+                调 wiki-llm  ↑          _mesh
+                端口)     不依赖 agent-core
 
-所有模块均可通过 uwu_event_mesh 发布/订阅事件（可选，非强依赖）
-uwu_wiki 自身不持有任何存储实例
+  wiki-testkit（dev-dependency，MemoryWikiStorage，不进生产依赖）
+
+  WikiStorage / LlmClient trait 均在 wiki-core 定义，外部注入
+  例：agent-context-db 实现并注入
+  单向依赖：wiki-core ← 各能力 crate ← 调用方；横切层不反向依赖领域层
+  uwu_wiki 自身不持有任何存储实例，wiki-llm 不持有 LLM 引擎
+
+  WikiStorage 端口全集（均在 wiki-core 定义，宿主注入实现）：
+    vector_store / doc_store / op_log          （原有）
+    text_index（#1）/ link_store（#2）
+    blob_store（#4）/ version_store（#5）
+  检索层额外注入 PermissionFilter（#3，由 wiki-collab 实现）
 ```
 
 ---
@@ -842,4 +995,101 @@ duplicate_threshold      = 0.92
 stale_check_llm          = true
 auto_fix_broken_links    = true
 auto_create_missing_pages = false
+
+[wiki.search]
+full_text                = true          # 启用全文倒排精确检索（#1）
+fuzzy                    = false         # 是否启用模糊匹配
+
+[wiki.attachments]
+enabled                  = true          # 附件支持（#4）
+max_blob_mb              = 50
+gc_schedule              = "0 4 * * *"   # 每天凌晨 4 点回收孤儿 blob
+
+[wiki.versioning]
+enabled                  = true          # 文档版本快照（#5）
+snapshot_op_threshold    = 50            # 累积 N 个 Op 自动快照
+max_versions_per_doc     = 200           # 超出后合并/丢弃最旧快照
+
+[wiki.embedding]
+staleness_check          = true          # embedding 陈旧检测（#8）
 ```
+
+---
+
+## 15. 检索与知识完整性补充
+
+> 本节补齐 §7 语义检索之外的知识库刚需能力（#1 全文检索、#5 版本浏览、#8 embedding 陈旧检测）。#2 双向链接见 §4.1，#3 权限过滤见 §7，#4 附件见 §10.1 `BlobStore`。
+
+### 15.1 全文精确检索（#1）
+
+语义检索(向量+BM25)对"精确 API 名/错误码/罕见术语"召回弱。`TextIndex` 端口(§10.1)提供正文倒排索引,与语义检索**并联融合**:
+
+```
+用户查询
+  ├─ 语义路 → VectorStore（向量 + BM25，召回语义相近）
+  └─ 精确路 → TextIndex（倒排，召回精确 token / 短语 / 前缀）
+  → 结果融合（RRF, Reciprocal Rank Fusion）
+  → 权限过滤（§7）→ rerank → 返回
+```
+
+```rust
+pub struct TextQuery {
+    pub terms: Vec<String>,          // 精确词
+    pub phrase: Option<String>,      // 短语精确匹配
+    pub filter: Option<serde_json::Value>,  // tag/status/space 过滤
+    pub mode: MatchMode,             // Exact | Prefix | Fuzzy
+}
+```
+
+- 融合策略用 RRF,避免向量分与 BM25 分量纲不可比。
+- `TextIndex` 后端由宿主注入:`agent-context-db` 用 PG `tsvector`;`wiki-testkit` 用内存倒排表。
+
+### 15.2 文档版本浏览与 diff（#5）
+
+`DocVersionStore` 端口(§10.1)提供用户级版本能力。**与 CRDT OpLog 区分**：OpLog 是协作回放用的操作流,`DocVersionStore` 存的是可读**版本快照**(Block 树完整状态 + label)。
+
+```
+版本快照触发：
+  ├─ 自动：累积 Op 数达 snapshot_op_threshold（默认 50）
+  └─ 手动：用户"保存版本"打 label
+
+版本浏览：list_versions(doc) → [VersionEntry { id, label, author, ts }]
+版本比较：diff(doc, v_a, v_b) → DocDiff { added/removed/modified: Vec<BlockChange> }
+回滚：restore(doc, v) = 以旧版内容提交为新版（不物理删除中间版本，可追溯）
+```
+
+- diff 是 **Block 级结构化差异**(增/删/改),不是文本行 diff,契合 Block 树模型。
+- 回滚采用"以旧为新"语义,保留完整历史链,符合审计要求。
+
+#### 与 agent-context-db MVCC 的关系（双实现策略）
+
+wiki 的 `DocVersionStore` 与 context-db 的 DAG 版本系统(context-db §4：commit + branch + tag + ASOF + 内容寻址去重)**能力上是子集关系**——wiki 需要的快照/diff/回滚,context-db DAG 全覆盖且更强(内容寻址避免全量快照、支持分支/merge)。为避免"两套版本系统并存导致双写、双存储、语义漂移",采用**端口 + 双实现**:
+
+- **`DocVersionStore` trait 定义留在 wiki-core**,保住 wiki 独立性;trait 不规定存储实现,也不暴露 context-db 的 `CommitId`/`branch` 具体类型（遵守 §1.5 wiki 不依赖宿主类型）。
+- **独立部署**（wiki 不挂 context-db）：`wiki-testkit` 提供线性快照实现,够用。
+- **挂 context-db**：由 `ContextDbDocVersionStore` 适配器把 wiki 版本操作翻译成 context-db 的 DAG 操作——`snapshot()` → `commit`、`diff()` → context-db 子树 diff、`restore()` → context-db rollback。wiki 的 `VersionId` 是 context-db `CommitId` 的投影。**真值源唯一(context-db DAG)**,wiki 版本是它的一个受限线性视图,零双写。
+
+> 此处理与 §6.3 pred_error(context-db)、§10 WikiStorage 同构:trait 在核心、真值源在宿主、适配器翻译。
+
+**明确不做分支**：知识库场景只需线性历史 + 回滚 + diff。wiki 的并发协作由 CRDT 实时合并(§9)解决,**不依赖版本分支**。因此 `DocVersionStore` 不加 branch/merge API,context-db 底层的分支能力对 wiki 用户隐藏。若未来确有"草稿分支/正式分支"需求,再让 `DocVersionStore` 向 context-db DAG 靠拢——但当前加分支属过度设计。
+
+### 15.3 Embedding 陈旧检测（#8）
+
+`diff_embed` 是异步的——worker 滞后/失败会导致检索命中过期向量。引入 **embedding 版本戳**:
+
+```rust
+pub struct Block {
+    // ... 原字段
+    pub version: u64,               // Block 内容版本
+    pub embedding: Option<Vec<f32>>,
+    pub embedding_version: u64,     // ★ 生成该 embedding 时的 Block.version
+}
+```
+
+- **写入**：Block 更新 `version += 1`,但 `embedding_version` 保持旧值,直到 worker 重算后对齐。
+- **检索**：命中 Block 若 `embedding_version < version`,标记为 stale,发 `wiki.embed.stale` 事件触发补算;检索结果仍可返回(旧向量),但附 `stale: true` 供调用方决策是否等待重算。
+- **一致性保障**：worker 重算幂等——以 `version` 为幂等键,重复事件不重复写。
+
+这样检索永不因异步滞后而静默命中错误向量,陈旧是**可见且自愈**的。
+
+---

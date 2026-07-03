@@ -1,0 +1,17 @@
+[package]
+name = "wiki-workflow"
+version = "0.1.0"
+edition = "2024"
+description = "uwu_wiki LLM 工作流：Ingest / Query / Lint 管线（依赖 wiki-core + wiki-llm 端口）"
+
+[dependencies]
+wiki-core = { path = "../wiki-core" }
+wiki-llm = { path = "../wiki-llm" }
+serde = { version = "1", features = ["derive"] }
+async-trait = "0.1"
+
+[features]
+default = []
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "macros"] }
