@@ -21,6 +21,7 @@
 1. **FS 范式统一性**：一切上下文皆 URI（`uwu://`），可 `ls`/`find`/`grep`/`tree`/`read`，避免"向量黑盒"。
 2. **双层存储单一数据源**：内容层（PostgreSQL 模拟 AGFS）= 唯一真相源；索引层（Qdrant）只存 URI + 向量 + 元数据指针，绝不存文件内容。
 3. **通用核心与专有扩展分离**：L1-L7 与具体 Agent 框架无关，可独立发布；L8 强依赖 uwu crate，单独成包（agent-context-db-uwu）。
+4. **事实层 / 派生层分离**（对接已落地 crate 的总原则）：凡是已在内存中运行的热态（`AgentState` 标量、`CalibrationHistory` 环形缓冲、内存关系图）是**派生层的真值源**；context-db 存的是它们的**冷归档 + 可重算来源**,不是反向真值。任何"把热态挪进库"的设计必须先证明热路径不会因此增加 IO。此原则优先于 FS 范式统一性——不为了"一切皆 URI"而牺牲高频路径性能。
 
 ### 0.3 与 OpenViking 的定位差异
 
@@ -47,6 +48,31 @@
 | LLM Provider | trait 抽象双实现 | `LlmClient` trait，MCP 默认 + 直连 SDK 备选 |
 | HTTP 模式 | 第一版延后 | 聚焦引擎内嵌入式集成，降低首版复杂度 |
 | 旧数据迁移 | 不需要 | uwu_agent_engine 仍在设计阶段，无生产数据 |
+
+### 0.5 模块化交付分层（M0-M3，权威落地顺序）
+
+> 本节是落地的**单一权威顺序**。§2 的 8 层（L1-L8）是*逻辑分层*，不是交付顺序；§9/§10 的 25 项功能是*能力池*，不是首版范围。任何实现从 M0 开始，逐层解锁，禁止跳阶。
+
+**模块拆分原则**：每个 M 是一个可独立编译、可独立测试、可独立废弃的 crate 边界。上层依赖下层，下层不知上层存在。
+
+| 里程碑 | crate | 交付内容 | 依赖 | 验收标准 |
+|---|---|---|---|---|
+| **M0 内核** | `agent-context-db-core` | `uwu://` URI + `FsOps` + `ContentRepo` 两个窄 trait + 单后端(PG) + L0/L1/L2 读 | 无 uwu 依赖 | 能写入/寻址/读取一个 `MemoryClass::Cases` 条目并 ls 出来 |
+| **M1 检索** | `agent-context-db-retrieve` | `HierarchicalRetriever`（**仅依赖 `FsOps` 端口**）+ Qdrant 索引层 + 8 类 `MemoryExtractor` | M0 | retrieve_typed 返回按类过滤的命中；可用内存版 `FsOps` mock 单测,不启 PG |
+| **M2 版本** | `agent-context-db-version` | `VersionOps` 端口实现(branch/tag/snapshot) + 子树快照 + 时间旅行 | M0 | fork 一个子树、改写、rollback 回原版本；version feature 关闭时 M0/M1 仍可编译 |
+| **M3 uwu 扩展** | `agent-context-db-uwu` | 五维 bridge + Guard 写约束 + fork 推演 | M0-M2 + 全部 uwu crate | 用真实 `agent-state`/`agent-metacognition` 对接跑通 pred_error 归档 |
+
+**内部解耦硬约束（编译期强制,见 §2.0）**：
+- 每个 M crate 只 `use` 下层的**窄 trait**,禁止 `use` 下层具体 struct（如 `AgfsStore`/`QdrantIndex`）。后端类型只在 composition root(L2 service)装配时出现一次。
+- `ContextStore` 聚合别名仅供最终应用层便利使用；M0-M3 库内部一律依赖 `FsOps`/`ContentRepo`/`VersionOps` 窄端口。
+- 后端可替换性验收:M1 单测必须用内存版 `FsOps` 实现,证明检索层不绑定 PG。
+
+**与已落地 crate 的对接策略（破坏性，但按阶隔离）**：
+- M0-M2 期间 **不动** 任何现有 crate。`agent-state`/`agent-memory`/`agent-metacognition` 照常在内存里跑,context-db 仅作为可选持久化后端并行存在。
+- **M3 才引入破坏性重构**（§5 清单）：`agent-memory` 降为薄适配层、`agent-wiki` 删除、`agent-sidecar-consolidator` 内嵌化。在 M0-M2 未验证前不得执行这些删除,否则一旦 context-db 设计证伪,回退成本极高。
+- 真值源边界统一遵循 §6.3 的「事实层 / 派生层」原则:内存态(scalar / ring-buffer / 内存图)是热路径真值,context-db 是其冷归档与重算来源,而非反过来。
+
+**首版明确不做**（砍掉,进 M4+ 能力池）：F16-F30 全部 15 项创新功能、CRDT 多 Agent 联邦、HTTP 模式、LLM 合并仲裁。首版只需 M0-M2 的单 Agent、单后端、嵌入式闭环。
 
 ---
 
@@ -176,6 +202,36 @@
 ---
 
 ## 2. 核心 trait 定义
+
+### 2.0 内部模块化解耦原则（trait 分离 + 端口/适配器）
+
+> 本节是**内部解耦的权威约束**。§2.2 起的各 trait 必须遵守以下规则,否则退化为单体。
+
+**问题**：初版把 `ContextStore` 设计成一个胖 trait(FS + CRUD + MVCC + 租户 20+ 方法),这是 god-trait 反模式——任何后端实现都被迫一次性实现全部能力,无法只替换其中一层,也无法对单一职责做单测。
+
+**解耦规则**：
+
+1. **接口隔离(ISP)**：按职责把胖 trait 拆成窄 trait,调用方只依赖它真正用到的那个。`ContextStore` 拆为:
+   - `FsOps`(ls/find/grep/tree/read) — 只读寻址
+   - `ContentRepo`(write/delete/rename) — 内容写
+   - `VersionOps`(version_history/rollback/diff) — 版本
+   - `TenantOps`(list_tenants) — 租户
+   胖 `ContextStore` 保留为 `FsOps + ContentRepo` 的 supertrait 别名,供便利调用,但内部各层只依赖窄 trait。
+
+2. **端口/适配器(六边形)**：每层定义自己的**端口 trait**(它需要什么),不直接依赖下层具体类型。存储后端(PG/Qdrant)是**适配器**,实现端口。检索层依赖 `FsOps` 端口,不依赖 `AgfsStore` 具体类型——PG 可换成 SQLite/内存实现而检索层零改动。
+
+3. **依赖倒置(DIP)**：`LlmClient`/`WikiStorage`/`VersionStore` 全部是 trait 注入,构造期由 composition root(L2 service)装配。任何层不得 `use` 另一层的具体 struct,只 `use` 其 trait。
+
+4. **单向依赖**：L(n) 只能依赖 L(n-1) 的 trait,禁止反向或跨层。编译期由 crate 边界强制(见 §0.5 的 M0-M3 crate 拆分)。
+
+**解耦收益对照**：
+
+| 维度 | 胖 trait(前) | 窄 trait + 端口(后) |
+|---|---|---|
+| 替换 PG→SQLite | 改所有实现 | 只写新 `ContentRepo` 适配器 |
+| 单测检索层 | 需 mock 20+ 方法 | 只 mock `FsOps` 5 方法 |
+| M0 首版最小实现 | 必须实现全 trait | 只实现 `FsOps + ContentRepo` |
+| 版本层可选 | 编译期强绑定 | `VersionOps` 独立 crate,feature 开关 |
 
 ### 2.1 LlmClient（LLM 调用抽象，trait 双实现）
 
@@ -334,29 +390,45 @@ pub struct ContentRef(pub Uuid); // AGFS 内容 blob ID
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContentType { Text, Image, Audio, Video, Binary }
 
-/// 存储层核心 trait —— AGFS 内容层 + 向量索引层
+/// 存储层核心 trait —— 按职责拆分为窄 trait（接口隔离原则）
+/// 各层只依赖它真正用到的窄 trait；下面四个是独立职责端口。
+
+/// 端口 1：只读 FS 寻址（检索层唯一依赖此端口）
 #[async_trait]
-pub trait ContextStore: Send + Sync {
-    // === FS 操作 ===
+pub trait FsOps: Send + Sync {
     async fn ls(&self, dir: &ContextUri) -> Result<Vec<DirEntry>, ContextError>;
     async fn find(&self, pattern: &FindPattern) -> Result<Vec<ContextUri>, ContextError>;
     async fn grep(&self, regex: &str, scope: &ContextUri) -> Result<Vec<GrepHit>, ContextError>;
     async fn tree(&self, root: &ContextUri, depth: usize) -> Result<TreeNode, ContextError>;
     async fn read(&self, uri: &ContextUri, level: ContentLevel) -> Result<ContentPayload, ContextError>;
+}
 
-    // === CRUD ===
+/// 端口 2：内容写（M0 必需）
+#[async_trait]
+pub trait ContentRepo: Send + Sync {
     async fn write(&self, entry: ContextEntry) -> Result<MvccVersion, ContextError>;
     async fn delete(&self, uri: &ContextUri) -> Result<(), ContextError>;
     async fn rename(&self, from: &ContextUri, to: &ContextUri) -> Result<(), ContextError>;
+}
 
-    // === MVCC ===
+/// 端口 3：版本操作（M2 独立 crate，feature 开关；M0/M1 可不实现）
+#[async_trait]
+pub trait VersionOps: Send + Sync {
     async fn version_history(&self, uri: &ContextUri) -> Result<Vec<VersionEntry>, ContextError>;
     async fn rollback(&self, uri: &ContextUri, to: MvccVersion) -> Result<(), ContextError>;
     async fn diff(&self, uri: &ContextUri, a: MvccVersion, b: MvccVersion) -> Result<ContextDiff, ContextError>;
+}
 
-    // === 租户隔离 ===
+/// 端口 4：租户隔离
+#[async_trait]
+pub trait TenantOps: Send + Sync {
     async fn list_tenants(&self) -> Result<Vec<TenantId>, ContextError>;
 }
+
+/// 便利 supertrait 别名：需要"完整存储"能力的调用方用它，
+/// 但库内部各层严禁依赖此聚合 trait，只依赖上面的窄端口。
+pub trait ContextStore: FsOps + ContentRepo + VersionOps + TenantOps {}
+impl<T: FsOps + ContentRepo + VersionOps + TenantOps> ContextStore for T {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContentLevel { L0, L1, L2 }
@@ -822,8 +894,8 @@ uwu://
 │   │   │   ├── mid/                          # 中程 WS
 │   │   │   └── long/                         # 长程 WS
 │   │   ├── metacog/                          # ★ uwu 升级:Metacog 校准数据
-│   │   │   ├── pred_errors/                  # JEPA 预测误差历史
-│   │   │   │   └── {ts}.json
+│   │   │   ├── pred_errors/                  # CalibrationHistory 冷归档 + 派生标量重算来源
+│   │   │   │   └── {ts}.json                 #   (非原始事实流;每条 = CalibrationRecord evict 后落盘)
 │   │   │   └── cost_history/                # 成本历史
 │   │   └── character/                        # ★ uwu 升级:Character 价值观
 │   │       ├── core_values.md                # 不可变 (写入受限)
@@ -971,7 +1043,7 @@ uwu://.../agent/{id}/
 
 ## 4. 版本管理系统
 
-### 0.1 优化前 → 优化后 变化全景
+### 4.0 优化前 → 优化后 变化全景
 
 | 维度 | 优化前 | 优化后 |
 |---|---|---|
@@ -2011,10 +2083,19 @@ impl PersonaBridge {
 
 ### 6.3 Metacognition 校准数据检索
 
+> **真值源边界（对接 agent-metacognition 现有实现）**
+> `pred_error` 有两个已落地的载体,本设计不另造范式,而是显式对齐:
+> - **派生层** `AgentState.long_term.accumulated_pred_error: f32` — sample 序列的 EMA 投影,meta_score 热路径直接读它(零 IO),可随时从事实层重算,不是独立真值。
+> - **事实层** = `CalibrationHistory`(内存环形缓冲,cap 1000,热)+ `metacog/pred_errors/`(evict 后冷归档),两者是同一序列的连续体。
+> - 类型对齐:`PredErrorSample ≡ agent-metacognition 的 CalibrationRecord`(`predicted_state_id` / `actual_state_id` / `calibration` / `meta_score` / `ts`),无需新造类型。
+> `metacog/pred_errors/` 因此不是"原始事实流",而是环形缓冲 evict 后的只读归档 + 派生标量的重算来源。检索校准历史时需合并内存(热,未 evict)与 FS(冷,已归档)两处。
+
 ```rust
 // agent-context-db/src/uwu/metacog_bridge.rs
 
 impl MetacogBridge {
+    /// 归档:CalibrationHistory evict 出的 CalibrationRecord 落盘为冷存
+    /// (热路径写的是内存环形缓冲,不是这里;此方法仅在 evict 时触发)
     pub async fn log_pred_error(&self, agent_id: &str, sample: &PredErrorSample)
         -> Result<(), ContextError>
     {
@@ -2026,9 +2107,10 @@ impl MetacogBridge {
     pub async fn retrieve_calibration(&self, agent_id: &str, window: TimeWindow)
         -> Result<Vec<PredErrorSample>, ContextError>
     {
-        // 1. ls metacog/pred_errors/ 取时间窗口内文件
-        // 2. 并行 read(L2) 反序列化
-        // 3. 可选：retrieve_typed 在 experiences/ 中找相似场景校准历史
+        // 1. 先取内存 CalibrationHistory 中落在窗口内的记录(热,未 evict)
+        // 2. ls metacog/pred_errors/ 取窗口内已归档文件(冷),并行 read(L2) 反序列化
+        // 3. 合并去重(按 ts),热数据优先
+        // 4. 可选：retrieve_typed 在 experiences/ 中找相似场景校准历史
     }
 }
 ```
@@ -2333,6 +2415,28 @@ impl RetrievalTrace {
 
 
 ## 9. 创新功能（15 项）
+
+> **能力池,非首版范围**。下表按落地价值/成本给这 15 项定级,只有 Core 级进入 M0-M3,其余归 M4+ 或研究性储备。定级依据:是否单 Agent 场景必需、是否依赖尚未验证的模型(JEPA/因果/多模态)、失败是否可降级。
+
+| 功能 | 定级 | 归属 | 理由 |
+|---|---|---|---|
+| F16 预测性预加载 | Research | M4+ | 依赖 JEPA 预测模型,未落地;失败仅损失性能,可后加 |
+| F17 压缩感知加载 | Ext | M3 | L0/L1/L2 已有,压缩感知是其上的调度优化 |
+| F18 跨 Agent 联邦 | Research | M4+ | 多 Agent 场景,首版单 Agent 不需要 |
+| F19 知识晶体蒸馏 | Ext | M4+ | 依赖大量历史数据积累后才有意义 |
+| F20 幻觉检测 | Core | M1 | 检索质量闸门,单 Agent 即需要,可用规则起步 |
+| F21 自修复 | Ext | M4+ | 依赖 F5 provenance,复杂度高 |
+| F22 遗忘曲线 | Ext | M3 | TTL/生命周期的策略层,M3 的 lifecycle 可承载 |
+| F23 梦境巩固 | Research | M4+ | 探索性,收益未验证 |
+| F24 版本差异推理 | Ext | M3 | 建立在 M2 版本系统上 |
+| F25 安全沙箱 | Core | M3 | Guard 写约束的一部分,uwu 扩展必需 |
+| F26 上下文经济模型 | Research | M4+ | token 预算已在 metacognition,重复 |
+| F27 因果推断 | Research | M4+ | 依赖因果模型,未落地 |
+| F28 增量检索学习 | Ext | M4+ | 检索器在线学习,M1 稳定后 |
+| F29 多模态对齐 | Research | M4+ | 依赖多模态模型 |
+| F30 时态推理 | Ext | M3 | 建立在 M2 时间旅行上 |
+
+> Core=2 项进 M1-M3 主线;Ext=6 项作为对应里程碑的可选增强;Research=7 项进独立探索分支,不阻塞主线。一次性实现全部 15 项是本设计最大的过度设计风险。
 
 ### 1.1 F16 上下文预测性预加载（Predictive Prefetch）
 

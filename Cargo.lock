@@ -40,6 +40,131 @@ dependencies = [
 ]
 
 [[package]]
+name = "agent-context-db-compressor"
+version = "0.1.0"
+dependencies = [
+ "agent-context-db-core",
+ "agent-context-db-parse",
+ "agent-context-db-session",
+ "async-trait",
+ "serde",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "agent-context-db-core"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "uuid",
+]
+
+[[package]]
+name = "agent-context-db-parse"
+version = "0.1.0"
+dependencies = [
+ "agent-context-db-core",
+ "async-trait",
+ "chrono",
+ "serde",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "agent-context-db-retrieve"
+version = "0.1.0"
+dependencies = [
+ "agent-context-db-core",
+ "async-trait",
+ "serde",
+ "tokio",
+]
+
+[[package]]
+name = "agent-context-db-session"
+version = "0.1.0"
+dependencies = [
+ "agent-context-db-core",
+ "async-trait",
+ "chrono",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "agent-context-db-storage"
+version = "0.1.0"
+dependencies = [
+ "agent-context-db-core",
+ "async-trait",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "agent-context-db-testkit"
+version = "0.1.0"
+dependencies = [
+ "agent-context-db-core",
+ "async-trait",
+ "chrono",
+ "parking_lot",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "agent-context-db-uwu"
+version = "0.1.0"
+dependencies = [
+ "agent-context-db-core",
+ "agent-context-db-retrieve",
+ "agent-context-db-version",
+ "async-trait",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "agent-context-db-version"
+version = "0.1.0"
+dependencies = [
+ "agent-context-db-core",
+ "async-trait",
+ "chrono",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "agent-context-db-wiki"
+version = "0.1.0"
+dependencies = [
+ "agent-context-db-core",
+ "agent-context-db-storage",
+ "async-trait",
+ "parking_lot",
+ "serde_json",
+ "tokio",
+ "wiki-core",
+]
+
+[[package]]
 name = "agent-core"
 version = "0.1.0"
 dependencies = [

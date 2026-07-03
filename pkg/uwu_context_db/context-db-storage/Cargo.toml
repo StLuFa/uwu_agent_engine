@@ -1,0 +1,17 @@
+[package]
+name = "agent-context-db-storage"
+version = "0.1.0"
+edition = "2024"
+description = "agent-context-db L7 存储层：VectorIndex 端口 + 服务装配（composition root），后端适配器由宿主实现"
+
+[dependencies]
+agent-context-db-core = { path = "../context-db-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+async-trait = "0.1"
+
+[features]
+default = []
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "macros"] }

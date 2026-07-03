@@ -48,6 +48,17 @@ members = [
     "pkg/uwu_wiki/wiki-graph",
     "pkg/uwu_wiki/wiki-workflow",
     "pkg/uwu_wiki/wiki-testkit",
+    # agent-context-db 上下文数据库（M0-M3 模块化解耦骨架）
+    "pkg/uwu_context_db/context-db-core",
+    "pkg/uwu_context_db/context-db-session",
+    "pkg/uwu_context_db/context-db-parse",
+    "pkg/uwu_context_db/context-db-compressor",
+    "pkg/uwu_context_db/context-db-storage",
+    "pkg/uwu_context_db/context-db-wiki",
+    "pkg/uwu_context_db/context-db-retrieve",
+    "pkg/uwu_context_db/context-db-version",
+    "pkg/uwu_context_db/context-db-uwu",
+    "pkg/uwu_context_db/context-db-testkit",
 ]
 resolver = "3"
 

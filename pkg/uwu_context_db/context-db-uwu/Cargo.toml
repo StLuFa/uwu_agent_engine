@@ -1,0 +1,21 @@
+[package]
+name = "agent-context-db-uwu"
+version = "0.1.0"
+edition = "2024"
+description = "agent-context-db M3 专有扩展：五维 bridge + Guard 写约束 + State fork 推演（依赖 core/retrieve/version）"
+
+[dependencies]
+agent-context-db-core = { path = "../context-db-core" }
+agent-context-db-retrieve = { path = "../context-db-retrieve" }
+agent-context-db-version = { path = "../context-db-version" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+async-trait = "0.1"
+thiserror = "1"
+
+[features]
+default = []
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "macros"] }
+uuid = { version = "1", features = ["v4"] }
