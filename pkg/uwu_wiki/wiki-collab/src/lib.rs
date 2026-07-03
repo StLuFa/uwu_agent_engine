@@ -3,6 +3,13 @@
 //! 协作层：CRDT 合并计算（复用 uwu-crdt，不持有存储）+ 权限控制。
 //!
 //! 权限过滤实现 [`PermissionFilter`]，供检索层注入（RAG 越权泄露防护，见 ARCHITECTURE §7）。
+//!
+//! [`sync`] 模块把 wiki-core 领域 [`Op`](wiki_core::Op) 翻译成 uwu-crdt 的
+//! [`UwuOp`](uwu_crdt::UwuOp)，交由 [`UwuCrdtDoc`](uwu_crdt::UwuCrdtDoc) 无冲突合并。
+
+pub mod sync;
+
+pub use sync::{CollabDoc, SyncError};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
