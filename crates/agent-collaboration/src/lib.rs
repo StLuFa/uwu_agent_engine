@@ -10,7 +10,7 @@ pub use delegate::{DelegationId, DelegationResult, DelegationState};
 pub use negotiate::NegotiationResult;
 pub use registry::{AgentDescriptor, AgentRegistry};
 
-use agent_crdt::{GCounter, LWWRegister, ORSet, PNCounter, VectorClock};
+use uwu_crdt::{GCounter, LWWRegister, ORSet, PNCounter, VectorClock};
 use agent_wiki::WikiPage;
 use std::collections::HashMap;
 use std::sync::Arc;

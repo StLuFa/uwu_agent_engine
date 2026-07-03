@@ -26,7 +26,7 @@ members = [
     "crates/agent-execution",
     # 协作与安全
     "crates/agent-uncertainty",
-    "crates/agent-crdt",
+    "pkg/uwu_crdt",
     "crates/agent-tools",
     "crates/agent-guard",
     "crates/agent-learning",

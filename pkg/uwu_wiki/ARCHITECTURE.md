@@ -693,16 +693,16 @@ llm-workflow = ["wiki-llm/workflow", "dep:tokio"]
 
 ## 9. 协作层 wiki-collab
 
-基于 `agent-crdt`，文档/图共用同一协作协议。
+基于 `uwu-crdt`，文档/图共用同一协作协议。
 
-**定位说明**：`agent-crdt` 是**合并逻辑层**，不持有存储——它在内存中执行 CRDT 合并计算（无冲突），合并后的 Block 树状态和 Op 序列均由 `WikiStorage` 接口持久化到 DB（PG）。DB 是唯一真相源，`agent-crdt` 只是合并算子。
+**定位说明**：`uwu-crdt` 是**合并逻辑层**，不持有存储——它在内存中执行 CRDT 合并计算（无冲突），合并后的 Block 树状态和 Op 序列均由 `WikiStorage` 接口持久化到 DB（PG）。DB 是唯一真相源，`uwu-crdt` 只是合并算子。
 
 ```
 wiki-collab/src/
 ├── session.rs     CollabSession（连接 / 心跳 / 离线 Op 队列）
 ├── awareness.rs   光标位置 / 在线状态广播
 ├── permission.rs  SpaceRole（Owner / Editor / Viewer）+ Block / Node 级权限
-├── sync.rs        Op 队列合并 + CRDT 合并计算（agent-crdt）
+├── sync.rs        Op 队列合并 + CRDT 合并计算（uwu-crdt）
 └── lib.rs
 ```
 
@@ -711,18 +711,18 @@ wiki-collab/src/
 ```
 Client A 提交 Op（文档或图均适用）
   → wiki-collab::sync 权限校验
-  → agent-crdt 内存合并（CRDT 合并算子，无冲突，不持久化）
+  → uwu-crdt 内存合并（CRDT 合并算子，无冲突，不持久化）
   → 合并后 Block 树状态写 WikiStorage::doc_store()（PG blocks 表）
   → Op 序列化后写 WikiStorage::op_log()（PG op_log 表，用于离线回放）
   → 广播 Delta 给同 Doc/Graph 所有在线 Client（uwu_event_mesh）
   → 离线 Client 重连 → 从 WikiStorage::op_log() 拉取 Op 队列回放
 ```
 
-**DB 是存储层，agent-crdt 是合并计算层，两者职责分离：**
+**DB 是存储层，uwu-crdt 是合并计算层，两者职责分离：**
 
 | 职责 | 承担方 |
 |---|---|
-| CRDT 合并计算（无冲突合并算子） | `agent-crdt`（内存，无 I/O） |
+| CRDT 合并计算（无冲突合并算子） | `uwu-crdt`（内存，无 I/O） |
 | 合并后状态持久化 | `WikiStorage::doc_store()` → PG blocks 表 |
 | Op 日志持久化（离线回放） | `WikiStorage::op_log()` → PG op_log 表 |
 | Op 实时广播 | `uwu_event_mesh`（wiki.collab.op 事件） |
@@ -892,7 +892,7 @@ pkg/uwu_wiki/
 ├── wiki-graph/      流程图 / 思维导图（依赖 wiki-core；自适配 TextUnit 调 wiki-llm）
 ├── wiki-llm/        LLM 横切层（领域无关 LlmCapability + TextUnit；LlmClient 注入，不依赖 agent-core）
 ├── wiki-workflow/   LLM Wiki 工作流 Ingest/Query/Lint（依赖 wiki-core + wiki-llm 端口）
-└── wiki-collab/     CRDT 协作（依赖 wiki-core, agent-crdt, uwu_event_mesh）
+└── wiki-collab/     CRDT 协作（依赖 wiki-core, uwu-crdt, uwu_event_mesh）
 ```
 
 | Crate | Feature | 说明 |
@@ -922,7 +922,7 @@ pkg/uwu_wiki/
             /       |        |         \        \
      wiki-table  wiki-graph  wiki-llm  wiki-collab  wiki-workflow
          |          |         |          |            |
-   uwu_visual   (适配      LlmClient   agent-crdt   依赖 wiki-llm
+   uwu_visual   (适配      LlmClient   uwu-crdt   依赖 wiki-llm
      _script    TextUnit   (注入)     uwu_event     端口 + wiki-core
                 调 wiki-llm  ↑          _mesh
                 端口)     不依赖 agent-core

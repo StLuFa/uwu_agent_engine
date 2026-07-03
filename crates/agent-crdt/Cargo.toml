@@ -1,9 +1,0 @@
-[package]
-name = "agent-crdt"
-version = "0.1.0"
-edition = "2024"
-description = "CRDT 状态——多 Agent 共享状态的无冲突合并"
-
-[dependencies]
-agent-types-core = { path = "../agent-types-core" }
-serde = { version = "1", features = ["derive"] }

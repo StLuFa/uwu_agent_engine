@@ -134,7 +134,7 @@
                              ▼
       ┌──────────────────────────────────────────────────────┐
       │  agent-mesh (事件网格)  agent-guard (五层闸门)          │
-      │  agent-crdt (合并计算层，不持久化)  agent-learning       │
+      │  uwu-crdt (合并计算层，不持久化)  agent-learning       │
       └──────────────────────────────────────────────────────┘
 ```
 
@@ -1401,7 +1401,7 @@ pub enum MergeStrategy {
     /// 三路合并：自动解决可合并部分，冲突保留
     ThreeWay { conflict_resolver: ConflictResolver },
 
-    /// CRDT 自动合并：利用 agent-crdt 的无冲突合并
+    /// CRDT 自动合并：利用 uwu-crdt 的无冲突合并
     CrdtAuto { crdt_type: CrdtType },
 
     /// LLM 语义合并：冲突部分交由 LLM 决策
@@ -1709,7 +1709,7 @@ pub trait ForkScorer: Send + Sync {
 | agent-metacognition | **重构** | 校准数据从 context-db-uwu `metacog/` 目录读取 | 低 |
 | agent-character | **保留** | 价值观作为 context-db-uwu 写入约束，自身不变 | 无 |
 | agent-reaction | **保留** | 规则可从 context-db `experiences/` 学习（升级点） | 无 |
-| agent-crdt | **保留** | **合并计算层，不持有存储**：内存执行 CRDT 合并算子，合并后状态和 Op 日志均持久化到 PG；同时作为 uwu_wiki wiki-collab 的 CRDT 后端 | 无 |
+| uwu-crdt | **保留** | **合并计算层，不持有存储**：内存执行 CRDT 合并算子，合并后状态和 Op 日志均持久化到 PG；同时作为 uwu_wiki wiki-collab 的 CRDT 后端 | 无 |
 | agent-guard | **保留** | egress 闸门拦截 context-db-uwu 写入 | 无 |
 | uwu_database | **保留但解耦** | context-db 不依赖它，直接持有 PG+Qdrant | 低 |
 | **uwu_wiki** | **新增依赖** | wiki-core + wiki-llm（workflow）作为通用核心的 L7 wiki 层基础；去存储层后由 context-db-uwu 注入 WikiStorage 实现 | - |
@@ -1736,7 +1736,7 @@ agent-core
   ├── agent-guard
   ├── agent-learning (→ agent-sidecar-consolidator)
   ├── agent-uncertainty
-  ├── agent-crdt
+  ├── uwu-crdt
   ├── agent-tools
   └── agent-mesh
 agent-sidecar-consolidator (独立进程)
@@ -1765,7 +1765,7 @@ agent-core
   ├── agent-guard (egress 拦截 context-db-uwu 写入)
   ├── agent-learning (订阅 context-db SemanticQueue 事件)
   ├── agent-uncertainty
-  ├── agent-crdt (合并计算层，不持久化；PG 是唯一存储后端)
+  ├── uwu-crdt (合并计算层，不持久化；PG 是唯一存储后端)
   ├── agent-tools
   └── agent-mesh
 agent-sidecar-monitor (保留,订阅内嵌管线事件)
@@ -2400,7 +2400,7 @@ impl RetrievalTrace {
 | U1 | **全 Rust 性能** | Python+Rust 混合 | 全 Rust，无 GIL，无序列化跨语言开销 | 原生实现 |
 | U2 | **Metacog 校准检索** | 无 | 检索结果经 pred_error 校准，过滤历史预测失败的模式 | `HierarchicalRetrieverImpl.metacog` |
 | U3 | **Guard 写入闸门** | 无 | 写入 context-db 经 GuardLayer egress 同步拦截，LearnNode 异步反馈 | `CharacterConstraint` + Guard 集成 |
-| U4 | **CRDT 协作编辑** | 无 | wiki 子域通过 `uwu_wiki` 的 `wiki-collab` 模块实现多 Agent CRDT 无冲突合并；`agent-crdt` 作为 wiki-collab 的 CRDT 后端 | `uwu_wiki::wiki-collab` + `agent-crdt` |
+| U4 | **CRDT 协作编辑** | 无 | wiki 子域通过 `uwu_wiki` 的 `wiki-collab` 模块实现多 Agent CRDT 无冲突合并；`uwu-crdt` 作为 wiki-collab 的 CRDT 后端 | `uwu_wiki::wiki-collab` + `uwu-crdt` |
 | U5 | **State fork 推演** | 无 | 检索结果可喂入 fork 沙盒推演，推演完成回写 FS | `StateBridge.fork()` |
 | U6 | **多租户** | 单租户文件操作 | account/user/agent 三级隔离 + uwu_auth | `TenantId` 全程透传 |
 | U7 | **五维 FS 同构** | 无 State/Persona 概念 | State/Persona/Metacog/Character/Reaction 皆为 FS 一等目录 | 第 3 节目录结构 |

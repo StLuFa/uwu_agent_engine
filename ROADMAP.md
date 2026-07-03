@@ -55,7 +55,7 @@
   ✅ 结构性断裂修复（mesh/core/task+collab → session）
   ✅ uwu_database → agent-memory 集成
   ✅ uwu_nats_bridge 新建（NATS/JetStream 跨进程）
-  ✅ agent-crdt 完整实现（18 tests）
+  ✅ uwu-crdt 完整实现（18 tests）
   ✅ agent-uncertainty 贝叶斯推理（16 tests）
   ✅ crdt→collab, uncertainty→metacog 接入
   ✅ wiki→session+collab+database 三路径接入
@@ -462,7 +462,7 @@ crates/agent-wiki/
 
 **后续集成（全部完成）：**
 - ✅ 接 `uwu_database` → DatabaseWikiStore (feature = "database", 14 tests)
-- ✅ 接 `agent-crdt` → SharedState (ORSet/LWWRegister for wiki edits)
+- ✅ 接 `uwu-crdt` → SharedState (ORSet/LWWRegister for wiki edits)
 - ✅ 接 `agent-session` → Session.wiki + save_to_wiki / search_wiki
 - ✅ 接 `agent-collaboration` → delegate_wiki_edit / delegate_wiki_create
 
@@ -479,7 +479,7 @@ cargo check -p agent-wiki                        # 0 errors, 0 warnings
 ### 5.2 agent-memory ✅（已完成）
 
 > **测试结果：** 10 passed, 0 failed, 0 warnings |
-> **关联：** 移除了未使用的 agent-types-ext/agent-persona/agent-mesh/agent-crdt/uwu_database 依赖
+> **关联：** 移除了未使用的 agent-types-ext/agent-persona/agent-mesh/uwu-crdt/uwu_database 依赖
 
 ```
 crates/agent-memory/
@@ -713,7 +713,7 @@ cargo check -p agent-task  # 0 errors, 0 warnings
 ### 7.2 agent-collaboration ✅（已完成）
 
 > **测试结果：** 5 passed, 0 failed |
-> **关联：** 移除了 agent-types-ext/agent-state/agent-persona/agent-mesh/agent-crdt/dashmap 依赖
+> **关联：** 移除了 agent-types-ext/agent-state/agent-persona/agent-mesh/uwu-crdt/dashmap 依赖
 
 ```
 crates/agent-collaboration/

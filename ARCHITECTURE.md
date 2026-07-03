@@ -1114,7 +1114,7 @@ agent-mesh ─────────────────┼─────
     ├── agent-guard          五层闸门（指令/参数/能力/预算/egress）
     ├── agent-learning       学习触发（LearnCondition + SkillTarget + Guard博弈）
     ├── agent-uncertainty    贝叶斯不确定性（集成到主循环）
-    ├── agent-crdt           CRDT 状态
+    ├── uwu-crdt           CRDT 状态
     ├── agent-tools          MCP 工具协议
     └── agent-core           会话管理 + FlowGraph(基于 uwu_visual_script) + 能力注册表
 
@@ -1154,7 +1154,7 @@ uwu_logger                   日志系统
 | `agent-guard` | 五层闸门 | `InstructionRule`, `BudgetRule`, `EgressRule` | `types-ext` |
 | `agent-learning` | 学习触发+Guard博弈 | `LearnCondition`, `SkillTarget` | `mesh`, `state`, `guard` |
 | `agent-uncertainty` | 贝叶斯不确定性 | `UncertaintyAggregator` | `types-core` |
-| `agent-crdt` | CRDT 状态 | `CRDTStore`, `StateMerger` | `types-core` |
+| `uwu-crdt` | CRDT 状态 | `CRDTStore`, `StateMerger` | `types-core` |
 | `agent-tools` | MCP 协议 | `ToolExecutor`, `MCPClient` | `types-ext` |
 | `agent-wiki` | 多 Agent 协作知识库（MVCC 版本化 + 语义检索） | `WikiPage`, `WikiRepo`, `MemoryWikiStore` | `types-core` |
 | `agent-core` | 会话管理 + FlowGraph(基于 uwu_visual_script) + 能力注册表 | `Agent`, `FlowGraph`, `CapabilityRegistry` | `mesh`, 五维, 所有能力域, `uwu_visual_script` |

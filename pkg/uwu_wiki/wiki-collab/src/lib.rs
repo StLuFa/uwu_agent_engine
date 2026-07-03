@@ -1,6 +1,6 @@
 //! # wiki-collab
 //!
-//! 协作层：CRDT 合并计算（复用 agent-crdt，不持有存储）+ 权限控制。
+//! 协作层：CRDT 合并计算（复用 uwu-crdt，不持有存储）+ 权限控制。
 //!
 //! 权限过滤实现 [`PermissionFilter`]，供检索层注入（RAG 越权泄露防护，见 ARCHITECTURE §7）。
 
