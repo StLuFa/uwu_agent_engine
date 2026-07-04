@@ -278,3 +278,445 @@ pub async fn build_pool(cfg: &DbConfig) -> Result<DbPool> {
         }
     }
 }
+
+// ===========================================================================
+// PG 集成测试
+// ===========================================================================
+
+#[cfg(test)]
+mod pg_tests {
+    use super::*;
+    use crate::test_utils;
+
+    /// 跳过条件：无 DATABASE_URL 环境变量时跳过。
+    fn require_pg() -> String {
+        test_utils::pg_url().expect("SKIP: DATABASE_URL not set")
+    }
+
+    // ── 连接 ───────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_connect_postgres() {
+        let _url = require_pg();
+        let pool = test_utils::pg_pool().await;
+        assert!(pool.is_some(), "should connect to PG");
+        let pool = pool.unwrap();
+        assert_eq!(pool.backend(), SqlBackend::Postgres);
+        pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn test_as_postgres_returns_pg_pool() {
+        let _url = require_pg();
+        let pool = test_utils::pg_pool().await.unwrap();
+        let pg = pool.as_postgres();
+        assert!(pg.is_ok(), "as_postgres should succeed for PG pool");
+        pool.close().await;
+    }
+
+    // ── DDL / DML ─────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_exec_create_table_and_insert() {
+        let _url = require_pg();
+        let pool = test_utils::pg_pool().await.unwrap();
+        let prefix = test_utils::unique_prefix();
+        let table = format!("{prefix}_test_exec");
+
+        // DDL
+        pool.exec(&format!(
+            "CREATE TABLE {table} (id SERIAL PRIMARY KEY, name TEXT NOT NULL)"
+        ))
+        .await
+        .expect("create table");
+
+        // DML: INSERT
+        pool.exec(&format!("INSERT INTO {table} (name) VALUES ('alice')"))
+            .await
+            .expect("insert");
+
+        // DML: SELECT（通过 raw query 验证）
+        let pg = pool.as_postgres().unwrap();
+        let row: (i32, String) =
+            sqlx::query_as(&format!("SELECT id, name FROM {table}"))
+                .fetch_one(pg)
+                .await
+                .expect("select");
+        assert_eq!(row.0, 1);
+        assert_eq!(row.1, "alice");
+
+        // 清理
+        let _ = pool.exec(&format!("DROP TABLE IF EXISTS {table}")).await;
+        pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn test_exec_multiple_statements() {
+        let _url = require_pg();
+        let pool = test_utils::pg_pool().await.unwrap();
+        let prefix = test_utils::unique_prefix();
+        let table = format!("{prefix}_multi");
+
+        pool.exec(&format!(
+            "CREATE TABLE {table} (x INT); \
+             INSERT INTO {table} VALUES (1); \
+             INSERT INTO {table} VALUES (2);"
+        ))
+        .await
+        .expect("multi-statement exec");
+
+        let pg = pool.as_postgres().unwrap();
+        let count: (i64,) =
+            sqlx::query_as(&format!("SELECT COUNT(*) FROM {table}"))
+                .fetch_one(pg)
+                .await
+                .unwrap();
+        assert_eq!(count.0, 2);
+
+        let _ = pool.exec(&format!("DROP TABLE IF EXISTS {table}")).await;
+        pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn test_exec_invalid_sql_returns_error() {
+        let _url = require_pg();
+        let pool = test_utils::pg_pool().await.unwrap();
+        let result = pool.exec("THIS IS NOT VALID SQL").await;
+        assert!(result.is_err(), "invalid SQL should error");
+        pool.close().await;
+    }
+
+    // ── 版本记录（迁移追踪） ──────────────────────────
+
+    #[tokio::test]
+    async fn test_version_record_crud() {
+        let _url = require_pg();
+        let pool = test_utils::pg_pool().await.unwrap();
+        let prefix = test_utils::unique_prefix();
+        let vt = format!("{prefix}_versions");
+
+        // 建表
+        pool.exec(&format!(
+            "CREATE TABLE \"{vt}\" (\
+                version BIGINT PRIMARY KEY, \
+                name TEXT NOT NULL, \
+                applied_at TEXT NOT NULL, \
+                checksum TEXT\
+            )"
+        ))
+        .await
+        .unwrap();
+
+        // 插入
+        pool.insert_version_record(&vt, 1, "init", "1000", "abc123")
+            .await
+            .unwrap();
+
+        // 读取
+        let records = pool.fetch_version_records(&vt).await.unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].0, 1); // version
+        assert_eq!(records[0].1, "init"); // name
+
+        // 删除
+        pool.delete_version_record(&vt, 1).await.unwrap();
+        let after_delete = pool.fetch_version_records(&vt).await.unwrap();
+        assert!(after_delete.is_empty());
+
+        // 清理
+        let _ = pool.exec(&format!("DROP TABLE IF EXISTS \"{vt}\"")).await;
+        pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn test_version_record_on_conflict_update() {
+        let _url = require_pg();
+        let pool = test_utils::pg_pool().await.unwrap();
+        let prefix = test_utils::unique_prefix();
+        let vt = format!("{prefix}_ver_upsert");
+
+        pool.exec(&format!(
+            "CREATE TABLE \"{vt}\" (\
+                version BIGINT PRIMARY KEY, \
+                name TEXT NOT NULL, \
+                applied_at TEXT NOT NULL, \
+                checksum TEXT\
+            )"
+        ))
+        .await
+        .unwrap();
+
+        // 首次插入
+        pool.insert_version_record(&vt, 1, "v1", "1000", "aaa")
+            .await
+            .unwrap();
+
+        // 冲突更新
+        pool.insert_version_record(&vt, 1, "v1_updated", "2000", "bbb")
+            .await
+            .unwrap();
+
+        let records = pool.fetch_version_records(&vt).await.unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].1, "v1_updated");
+
+        let _ = pool.exec(&format!("DROP TABLE IF EXISTS \"{vt}\"")).await;
+        pool.close().await;
+    }
+
+    // ── 关闭 ──────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_close_is_idempotent() {
+        let _url = require_pg();
+        let pool = test_utils::pg_pool().await.unwrap();
+        pool.close().await;
+        pool.close().await; // 重复调用不应 panic
+    }
+}
+
+// ===========================================================================
+// SQLite 集成测试（内存模式，无需外部依赖）
+// ===========================================================================
+
+#[cfg(all(test, feature = "sqlite"))]
+mod sqlite_tests {
+    use super::*;
+    use crate::test_utils;
+
+    async fn pool() -> DbPool {
+        test_utils::sqlite_pool().await
+    }
+
+    // ── 连接 ───────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_connect_sqlite_memory() {
+        let p = pool().await;
+        assert_eq!(p.backend(), SqlBackend::Sqlite);
+        p.close().await;
+    }
+
+    #[tokio::test]
+    async fn test_as_sqlite_returns_pool() {
+        let p = pool().await;
+        let s = p.as_sqlite();
+        assert!(s.is_ok(), "as_sqlite should succeed");
+        p.close().await;
+    }
+
+    // ── DDL / DML ─────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_exec_create_table_and_insert() {
+        let p = pool().await;
+        let prefix = test_utils::unique_prefix();
+        let table = format!("{prefix}_t");
+
+        p.exec(&format!(
+            "CREATE TABLE {table} (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL)"
+        ))
+        .await
+        .expect("create table");
+
+        p.exec(&format!("INSERT INTO {table} (name) VALUES ('alice')"))
+            .await
+            .expect("insert");
+
+        let s = p.as_sqlite().unwrap();
+        let row: (i64, String) =
+            sqlx::query_as(&format!("SELECT id, name FROM {table}"))
+                .fetch_one(s)
+                .await
+                .expect("select");
+        assert_eq!(row.0, 1);
+        assert_eq!(row.1, "alice");
+
+        let _ = p.exec(&format!("DROP TABLE IF EXISTS {table}")).await;
+        p.close().await;
+    }
+
+    #[tokio::test]
+    async fn test_exec_multiple_statements() {
+        let p = pool().await;
+        let prefix = test_utils::unique_prefix();
+        let table = format!("{prefix}_m");
+
+        // SQLite 下逐条执行（sqlx 不支持多条语句一起）
+        p.exec(&format!("CREATE TABLE {table} (x INTEGER)")).await.unwrap();
+        p.exec(&format!("INSERT INTO {table} VALUES (1)")).await.unwrap();
+        p.exec(&format!("INSERT INTO {table} VALUES (2)")).await.unwrap();
+
+        let s = p.as_sqlite().unwrap();
+        let count: (i64,) =
+            sqlx::query_as(&format!("SELECT COUNT(*) FROM {table}"))
+                .fetch_one(s)
+                .await
+                .unwrap();
+        assert_eq!(count.0, 2);
+
+        let _ = p.exec(&format!("DROP TABLE IF EXISTS {table}")).await;
+        p.close().await;
+    }
+
+    #[tokio::test]
+    async fn test_exec_invalid_sql_returns_error() {
+        let p = pool().await;
+        let r = p.exec("THIS IS NOT VALID SQL").await;
+        assert!(r.is_err());
+        p.close().await;
+    }
+
+    // ── 版本记录 ──────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_version_record_crud() {
+        let p = pool().await;
+        let prefix = test_utils::unique_prefix();
+        let vt = format!("{prefix}_v");
+
+        p.exec(&format!(
+            "CREATE TABLE \"{vt}\" (\
+                version INTEGER PRIMARY KEY, \
+                name TEXT NOT NULL, \
+                applied_at TEXT NOT NULL, \
+                checksum TEXT)"
+        ))
+        .await
+        .unwrap();
+
+        p.insert_version_record(&vt, 1, "init", "1000", "abc").await.unwrap();
+        let records = p.fetch_version_records(&vt).await.unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].1, "init");
+
+        p.delete_version_record(&vt, 1).await.unwrap();
+        assert!(p.fetch_version_records(&vt).await.unwrap().is_empty());
+
+        let _ = p.exec(&format!("DROP TABLE IF EXISTS \"{vt}\"")).await;
+        p.close().await;
+    }
+
+    #[tokio::test]
+    async fn test_close_sqlite_idempotent() {
+        let p = pool().await;
+        p.close().await;
+        p.close().await;
+    }
+}
+
+// ===========================================================================
+// MySQL 集成测试
+// ===========================================================================
+
+#[cfg(all(test, feature = "mysql"))]
+mod mysql_tests {
+    use super::*;
+    use crate::test_utils;
+
+    fn require_mysql() -> String {
+        test_utils::mysql_url().expect("SKIP: MYSQL_DATABASE_URL not set")
+    }
+
+    async fn pool() -> DbPool {
+        let _url = require_mysql();
+        test_utils::mysql_pool().await.unwrap()
+    }
+
+    // ── 连接 ───────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_connect_mysql() {
+        let _url = require_mysql();
+        let p = test_utils::mysql_pool().await;
+        assert!(p.is_some(), "should connect to MySQL");
+        let p = p.unwrap();
+        assert_eq!(p.backend(), SqlBackend::MySql);
+        p.close().await;
+    }
+
+    #[tokio::test]
+    async fn test_as_mysql_returns_pool() {
+        let p = pool().await;
+        let m = p.as_mysql();
+        assert!(m.is_ok(), "as_mysql should succeed");
+        p.close().await;
+    }
+
+    // ── DDL / DML ─────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_exec_create_table_and_insert() {
+        let p = pool().await;
+        let prefix = test_utils::unique_prefix();
+        let table = format!("{prefix}_t");
+
+        p.exec(&format!(
+            "CREATE TABLE {table} (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(100) NOT NULL)"
+        ))
+        .await
+        .expect("create table");
+
+        p.exec(&format!("INSERT INTO {table} (name) VALUES ('bob')"))
+            .await
+            .expect("insert");
+
+        let m = p.as_mysql().unwrap();
+        let row: (i32, String) =
+            sqlx::query_as(&format!("SELECT id, name FROM {table}"))
+                .fetch_one(m)
+                .await
+                .expect("select");
+        assert_eq!(row.0, 1);
+        assert_eq!(row.1, "bob");
+
+        let _ = p.exec(&format!("DROP TABLE IF EXISTS {table}")).await;
+        p.close().await;
+    }
+
+    #[tokio::test]
+    async fn test_exec_invalid_sql() {
+        let p = pool().await;
+        assert!(p.exec("XYZZY INVALID").await.is_err());
+        p.close().await;
+    }
+
+    // ── 版本记录 ──────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_version_record_crud() {
+        let p = pool().await;
+        let prefix = test_utils::unique_prefix();
+        let vt = format!("{prefix}_v");
+
+        p.exec(&format!(
+            "CREATE TABLE `{vt}` (\
+                version BIGINT PRIMARY KEY, \
+                name VARCHAR(255) NOT NULL, \
+                applied_at VARCHAR(50) NOT NULL, \
+                checksum VARCHAR(255)\
+            )"
+        ))
+        .await
+        .unwrap();
+
+        p.insert_version_record(&vt, 1, "m1", "1000", "sha").await.unwrap();
+
+        let records = p.fetch_version_records(&vt).await.unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].1, "m1");
+
+        p.delete_version_record(&vt, 1).await.unwrap();
+        assert!(p.fetch_version_records(&vt).await.unwrap().is_empty());
+
+        let _ = p.exec(&format!("DROP TABLE IF EXISTS `{vt}`")).await;
+        p.close().await;
+    }
+
+    #[tokio::test]
+    async fn test_close_mysql_idempotent() {
+        let p = pool().await;
+        p.close().await;
+        p.close().await;
+    }
+}

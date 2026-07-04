@@ -32,6 +32,7 @@ redis = { version = "0.27", optional = true, default-features = false, features 
 
 # Vector backends
 qdrant-client = { version = "1.13", optional = true, default-features = false, features = ["serde"] }
+qdrant-edge = { version = "0.7", optional = true, default-features = false }
 lancedb = { version = "0.30", optional = true, default-features = false }
 arrow-array = { version = "55", optional = true }
 arrow-schema = { version = "55", optional = true }
@@ -53,10 +54,11 @@ cache-redis  = ["dep:deadpool-redis", "dep:redis"]
 single-flight = ["dep:async-once-cell"]
 
 # Vector backends
-vector-memory   = ["dep:parking_lot"]
-vector-pgvector = ["postgres"]
-vector-qdrant   = ["dep:qdrant-client"]
-vector-lancedb  = ["dep:lancedb", "dep:arrow-array", "dep:arrow-schema", "dep:futures"]
+vector-memory        = ["dep:parking_lot"]
+vector-pgvector      = ["postgres"]
+vector-qdrant        = ["dep:qdrant-client"]
+vector-qdrant-edge   = ["dep:qdrant-edge"]
+vector-lancedb       = ["dep:lancedb", "dep:arrow-array", "dep:arrow-schema", "dep:futures"]
 
 # Vector compute optimizations
 vector-simd     = ["dep:wide"]
@@ -70,5 +72,7 @@ enterprise = ["multi-tenant", "audit-log"]
 multi-tenant = []
 audit-log    = []
 
+
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "test-util"] }
+uuid = { version = "1", features = ["v4"] }

@@ -134,6 +134,8 @@ pub enum VectorBackend {
     Pgvector,
     /// Qdrant gRPC。
     Qdrant,
+    /// Qdrant Edge 嵌入式库（进程内，类似 SQLite）。
+    QdrantEdge,
     /// LanceDB 嵌入式列存（uri 为本地路径或 S3 地址）。
     LanceDb,
 }

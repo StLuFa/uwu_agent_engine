@@ -219,3 +219,396 @@ fn validate_ident(s: &str) -> Result<()> {
     }
     Ok(())
 }
+
+// ===========================================================================
+// PG 集成测试（需要 pgvector 扩展）
+// ===========================================================================
+
+#[cfg(test)]
+mod pg_tests {
+    use super::*;
+    use crate::test_utils;
+
+    fn require_pg() -> String {
+        test_utils::pg_url().expect("SKIP: DATABASE_URL not set")
+    }
+
+    async fn setup_vector_store() -> (PgVectorStore, String) {
+        let _url = require_pg();
+        let pool = test_utils::pg_pool().await.unwrap();
+        let arc_pool = std::sync::Arc::new(pool);
+
+        // 创建 pgvector 扩展（需超级用户权限）
+        let pg = arc_pool.as_postgres().unwrap();
+        let _ = sqlx::query("CREATE EXTENSION IF NOT EXISTS vector")
+            .execute(pg)
+            .await;
+
+        let store = PgVectorStore::new(arc_pool).unwrap();
+        let prefix = test_utils::unique_prefix();
+        (store, prefix)
+    }
+
+    // ── 集合管理 ───────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_ensure_and_drop_collection() {
+        let (store, prefix) = setup_vector_store().await;
+        let coll = format!("{prefix}_coll");
+
+        let spec = CollectionSpec {
+            name: &coll,
+            dim: 3,
+            distance: Distance::Cosine,
+        };
+        store.ensure_collection(spec).await.unwrap();
+
+        // 确保 idempotent
+        store.ensure_collection(spec).await.unwrap();
+
+        // 验证表存在
+        let pg = store.pg();
+        let (exists,): (bool,) = sqlx::query_as(
+            "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = $1)"
+        )
+        .bind(&coll)
+        .fetch_one(pg)
+        .await
+        .unwrap();
+        assert!(exists, "collection table should exist");
+
+        // 删除
+        store.drop_collection(&coll).await.unwrap();
+
+        let (exists,): (bool,) = sqlx::query_as(
+            "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = $1)"
+        )
+        .bind(&coll)
+        .fetch_one(pg)
+        .await
+        .unwrap();
+        assert!(!exists, "collection table should be dropped");
+    }
+
+    #[tokio::test]
+    async fn test_drop_nonexistent_collection() {
+        let (store, _prefix) = setup_vector_store().await;
+        // 不应报错
+        store.drop_collection("nonexistent_collection_12345").await.unwrap();
+    }
+
+    // ── Upsert & Search ────────────────────────────────
+
+    #[tokio::test]
+    async fn test_upsert_and_search_cosine() {
+        let (store, prefix) = setup_vector_store().await;
+        let coll = format!("{prefix}_vs");
+
+        store.ensure_collection(CollectionSpec {
+            name: &coll, dim: 3, distance: Distance::Cosine,
+        }).await.unwrap();
+
+        // 写入 3 条记录
+        let records = vec![
+            Record {
+                id: "a".into(),
+                vector: vec![1.0, 0.0, 0.0],
+                metadata: [("label".into(), serde_json::json!("x"))].into(),
+            },
+            Record {
+                id: "b".into(),
+                vector: vec![0.0, 1.0, 0.0],
+                metadata: [("label".into(), serde_json::json!("y"))].into(),
+            },
+            Record {
+                id: "c".into(),
+                vector: vec![1.0, 1.0, 0.0],
+                metadata: [("label".into(), serde_json::json!("x"))].into(),
+            },
+        ];
+        store.upsert(&coll, &records).await.unwrap();
+
+        // 查询最接近 [1.0, 0.0, 0.0] 的向量
+        let results = store.search(&coll, Query {
+            vector: &[1.0, 0.0, 0.0],
+            top_k: 2,
+            filter: None,
+        }).await.unwrap();
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].id, "a", "a should be closest to [1,0,0]");
+        assert!(results[0].score > results[1].score, "results should be sorted by score desc");
+
+        store.drop_collection(&coll).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_upsert_updates_existing_record() {
+        let (store, prefix) = setup_vector_store().await;
+        let coll = format!("{prefix}_upd");
+
+        store.ensure_collection(CollectionSpec {
+            name: &coll, dim: 2, distance: Distance::Cosine,
+        }).await.unwrap();
+
+        // 首次插入
+        store.upsert(&coll, &[Record {
+            id: "r1".into(),
+            vector: vec![1.0, 0.0],
+            metadata: Default::default(),
+        }]).await.unwrap();
+
+        // 覆盖更新
+        store.upsert(&coll, &[Record {
+            id: "r1".into(),
+            vector: vec![0.0, 1.0],
+            metadata: [("v".into(), serde_json::json!(2))].into(),
+        }]).await.unwrap();
+
+        let results = store.search(&coll, Query {
+            vector: &[0.0, 1.0],
+            top_k: 1,
+            filter: None,
+        }).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "r1");
+        assert_eq!(results[0].metadata.get("v").and_then(|v| v.as_i64()), Some(2));
+
+        store.drop_collection(&coll).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_search_with_metadata_filter() {
+        let (store, prefix) = setup_vector_store().await;
+        let coll = format!("{prefix}_filt");
+
+        store.ensure_collection(CollectionSpec {
+            name: &coll, dim: 2, distance: Distance::Cosine,
+        }).await.unwrap();
+
+        store.upsert(&coll, &[
+            Record {
+                id: "keep".into(),
+                vector: vec![1.0, 0.0],
+                metadata: [("active".into(), serde_json::json!(true))].into(),
+            },
+            Record {
+                id: "skip".into(),
+                vector: vec![0.99, 0.01],
+                metadata: [("active".into(), serde_json::json!(false))].into(),
+            },
+        ]).await.unwrap();
+
+        let mut filter = std::collections::HashMap::new();
+        filter.insert("active".into(), serde_json::json!(true));
+
+        let results = store.search(&coll, Query {
+            vector: &[1.0, 0.0],
+            top_k: 5,
+            filter: Some(&filter),
+        }).await.unwrap();
+
+        assert_eq!(results.len(), 1, "only active=true should match");
+        assert_eq!(results[0].id, "keep");
+
+        store.drop_collection(&coll).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_search_l2_distance() {
+        let (store, prefix) = setup_vector_store().await;
+        let coll = format!("{prefix}_l2");
+
+        store.ensure_collection(CollectionSpec {
+            name: &coll, dim: 2, distance: Distance::L2,
+        }).await.unwrap();
+
+        store.upsert(&coll, &[
+            Record { id: "near".into(), vector: vec![0.0, 0.0], metadata: Default::default() },
+            Record { id: "far".into(), vector: vec![10.0, 10.0], metadata: Default::default() },
+        ]).await.unwrap();
+
+        let results = store.search(&coll, Query {
+            vector: &[0.0, 0.0],
+            top_k: 2,
+            filter: None,
+        }).await.unwrap();
+
+        assert_eq!(results[0].id, "near");
+        assert!(results[0].score > results[1].score,
+            "L2: nearer should have higher similarity score");
+
+        store.drop_collection(&coll).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_search_dot_product() {
+        let (store, prefix) = setup_vector_store().await;
+        let coll = format!("{prefix}_dot");
+
+        store.ensure_collection(CollectionSpec {
+            name: &coll, dim: 2, distance: Distance::Dot,
+        }).await.unwrap();
+
+        store.upsert(&coll, &[
+            Record { id: "aligned".into(), vector: vec![2.0, 0.0], metadata: Default::default() },
+            Record { id: "opposite".into(), vector: vec![-2.0, 0.0], metadata: Default::default() },
+        ]).await.unwrap();
+
+        let results = store.search(&coll, Query {
+            vector: &[1.0, 0.0],
+            top_k: 2,
+            filter: None,
+        }).await.unwrap();
+
+        assert_eq!(results[0].id, "aligned");
+        store.drop_collection(&coll).await.unwrap();
+    }
+
+    // ── Delete ─────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_delete_vectors() {
+        let (store, prefix) = setup_vector_store().await;
+        let coll = format!("{prefix}_del");
+
+        store.ensure_collection(CollectionSpec {
+            name: &coll, dim: 2, distance: Distance::Cosine,
+        }).await.unwrap();
+
+        store.upsert(&coll, &[
+            Record { id: "d1".into(), vector: vec![1.0, 0.0], metadata: Default::default() },
+            Record { id: "d2".into(), vector: vec![0.0, 1.0], metadata: Default::default() },
+        ]).await.unwrap();
+
+        // 删除一条
+        store.delete(&coll, &["d1".into()]).await.unwrap();
+
+        let results = store.search(&coll, Query {
+            vector: &[1.0, 0.0],
+            top_k: 5,
+            filter: None,
+        }).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "d2");
+
+        store.drop_collection(&coll).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_delete_empty_ids_noop() {
+        let (store, prefix) = setup_vector_store().await;
+        let coll = format!("{prefix}_edel");
+
+        store.ensure_collection(CollectionSpec {
+            name: &coll, dim: 2, distance: Distance::Cosine,
+        }).await.unwrap();
+
+        // 空列表不应报错
+        store.delete(&coll, &[]).await.unwrap();
+
+        store.drop_collection(&coll).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_upsert_empty_records_noop() {
+        let (store, prefix) = setup_vector_store().await;
+        let coll = format!("{prefix}_eup");
+
+        store.ensure_collection(CollectionSpec {
+            name: &coll, dim: 2, distance: Distance::Cosine,
+        }).await.unwrap();
+
+        store.upsert(&coll, &[]).await.unwrap();
+
+        store.drop_collection(&coll).await.unwrap();
+    }
+
+    // ── 索引 ───────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_create_hnsw_index() {
+        let (store, prefix) = setup_vector_store().await;
+        let coll = format!("{prefix}_hnsw");
+
+        store.ensure_collection(CollectionSpec {
+            name: &coll, dim: 3, distance: Distance::Cosine,
+        }).await.unwrap();
+
+        // 插入一些数据再建索引
+        store.upsert(&coll, &[
+            Record { id: "i1".into(), vector: vec![1.0, 0.0, 0.0], metadata: Default::default() },
+        ]).await.unwrap();
+
+        store.create_hnsw_index(&coll, 16, 200).await.unwrap();
+
+        // 建完索引后仍可正常查询
+        let results = store.search(&coll, Query {
+            vector: &[1.0, 0.0, 0.0],
+            top_k: 1,
+            filter: None,
+        }).await.unwrap();
+        assert_eq!(results.len(), 1);
+
+        store.drop_collection(&coll).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_create_ivfflat_index() {
+        let (store, prefix) = setup_vector_store().await;
+        let coll = format!("{prefix}_ivf");
+
+        store.ensure_collection(CollectionSpec {
+            name: &coll, dim: 4, distance: Distance::L2,
+        }).await.unwrap();
+
+        store.upsert(&coll, &[
+            Record { id: "j1".into(), vector: vec![0.0, 0.0, 0.0, 0.0], metadata: Default::default() },
+            Record { id: "j2".into(), vector: vec![1.0, 1.0, 1.0, 1.0], metadata: Default::default() },
+        ]).await.unwrap();
+
+        store.create_ivfflat_index(&coll, 1).await.unwrap();
+
+        let results = store.search(&coll, Query {
+            vector: &[0.0, 0.0, 0.0, 0.0],
+            top_k: 1,
+            filter: None,
+        }).await.unwrap();
+        assert_eq!(results.len(), 1);
+
+        store.drop_collection(&coll).await.unwrap();
+    }
+
+    // ── 标识符验证 ──────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_validate_ident_rejects_invalid() {
+        let (store, _prefix) = setup_vector_store().await;
+
+        // 空名称
+        let r = store.ensure_collection(CollectionSpec {
+            name: "", dim: 2, distance: Distance::Cosine,
+        }).await;
+        assert!(r.is_err(), "empty name should be rejected");
+
+        // 特殊字符
+        let r = store.ensure_collection(CollectionSpec {
+            name: "bad;drop--table", dim: 2, distance: Distance::Cosine,
+        }).await;
+        assert!(r.is_err(), "special chars should be rejected");
+    }
+
+    // ── 后端名 ──────────────────────────────────────────
+
+    #[test]
+    fn test_backend_name() {
+        let _url = require_pg();
+        // 需要通过 async 上下文创建，但这个测试只验证静态返回值
+        // backend_name 在构造后即可调用
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let (store, _prefix) = setup_vector_store().await;
+            assert_eq!(store.backend_name(), "pgvector");
+        });
+    }
+}

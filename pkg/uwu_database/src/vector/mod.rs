@@ -23,6 +23,9 @@ pub mod pgvector_store;
 #[cfg(feature = "vector-qdrant")]
 pub mod qdrant_store;
 
+#[cfg(feature = "vector-qdrant-edge")]
+pub mod qdrant_edge_store;
+
 #[cfg(feature = "vector-lancedb")]
 pub mod lancedb_store;
 

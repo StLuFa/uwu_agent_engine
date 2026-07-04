@@ -342,3 +342,509 @@ mod tests {
         assert_eq!(parse_filename("readme.md"), None);
     }
 }
+
+// ===========================================================================
+// PG 集成测试
+// ===========================================================================
+
+#[cfg(test)]
+mod pg_tests {
+    use super::*;
+    use crate::test_utils;
+
+    fn require_pg() -> String {
+        test_utils::pg_url().expect("SKIP: DATABASE_URL not set")
+    }
+
+    /// 为每个测试创建独立 Migrator 和唯一表名前缀，避免跨测试冲突。
+    async fn setup() -> (DbPool, String) {
+        let _url = require_pg();
+        let pool = test_utils::pg_pool().await.unwrap();
+        let prefix = test_utils::unique_prefix();
+        (pool, prefix)
+    }
+
+    // ── 版本表 ─────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_ensure_version_table_creates_table() {
+        let (pool, prefix) = setup().await;
+        let vt = format!("{prefix}_vtab");
+
+        let migrator = Migrator::new().with_version_table(&vt);
+        migrator.ensure_version_table(&pool).await.unwrap();
+
+        // 验证表存在
+        let pg = pool.as_postgres().unwrap();
+        let exists: (bool,) = sqlx::query_as(
+            "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = $1)"
+        )
+        .bind(&vt)
+        .fetch_one(pg)
+        .await
+        .unwrap();
+        assert!(exists.0, "version table should exist");
+
+        // 清理
+        let _ = pool.exec(&format!("DROP TABLE IF EXISTS \"{vt}\"")).await;
+        pool.close().await;
+    }
+
+    // ── 应用迁移 ───────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_apply_single_migration() {
+        let (pool, prefix) = setup().await;
+        let table = format!("{prefix}_users");
+        let vt = format!("{prefix}_v");
+
+        let migrator = Migrator::new()
+            .with_version_table(&vt)
+            .add(SqlMigration::new(
+                1,
+                "create_users",
+                format!("CREATE TABLE {table} (id SERIAL PRIMARY KEY, name TEXT)"),
+                Some(format!("DROP TABLE IF EXISTS {table}")),
+            ));
+
+        migrator.up(&pool).await.unwrap();
+
+        // 验证：表存在
+        let pg = pool.as_postgres().unwrap();
+        let exists: (bool,) = sqlx::query_as(
+            "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = $1)"
+        )
+        .bind(&table)
+        .fetch_one(pg)
+        .await
+        .unwrap();
+        assert!(exists.0, "users table should exist");
+
+        // 验证：可直接插入
+        pool.exec(&format!("INSERT INTO {table} (name) VALUES ('bob')"))
+            .await
+            .unwrap();
+
+        // 验证：版本记录存在
+        let records = pool.fetch_version_records(&vt).await.unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].0, 1);
+        assert_eq!(records[0].1, "create_users");
+
+        // 清理
+        let _ = pool.exec(&format!("DROP TABLE IF EXISTS {table}")).await;
+        let _ = pool.exec(&format!("DROP TABLE IF EXISTS \"{vt}\"")).await;
+        pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn test_apply_multiple_migrations_in_order() {
+        let (pool, prefix) = setup().await;
+        let t1 = format!("{prefix}_t1");
+        let t2 = format!("{prefix}_t2");
+        let vt = format!("{prefix}_v");
+
+        let migrator = Migrator::new()
+            .with_version_table(&vt)
+            .add(SqlMigration::new(
+                1, "create_t1",
+                format!("CREATE TABLE {t1} (a INT)"),
+                Some(format!("DROP TABLE IF EXISTS {t1}")),
+            ))
+            .add(SqlMigration::new(
+                2, "create_t2",
+                format!("CREATE TABLE {t2} (b INT)"),
+                Some(format!("DROP TABLE IF EXISTS {t2}")),
+            ));
+
+        migrator.up(&pool).await.unwrap();
+
+        // 两张表都存在
+        let pg = pool.as_postgres().unwrap();
+        for t in &[&t1, &t2] {
+            let (exists,): (bool,) = sqlx::query_as(
+                "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = $1)"
+            )
+            .bind(t)
+            .fetch_one(pg)
+            .await
+            .unwrap();
+            assert!(exists, "{t} should exist");
+        }
+
+        let records = pool.fetch_version_records(&vt).await.unwrap();
+        assert_eq!(records.len(), 2);
+
+        // 清理
+        for t in &[&t1, &t2] {
+            let _ = pool.exec(&format!("DROP TABLE IF EXISTS {t}")).await;
+        }
+        let _ = pool.exec(&format!("DROP TABLE IF EXISTS \"{vt}\"")).await;
+        pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn test_migration_idempotent() {
+        let (pool, prefix) = setup().await;
+        let table = format!("{prefix}_idem");
+        let vt = format!("{prefix}_v");
+
+        let migrator = Migrator::new()
+            .with_version_table(&vt)
+            .add(SqlMigration::new(
+                1, "init",
+                format!("CREATE TABLE IF NOT EXISTS {table} (x INT)"),
+                Some(format!("DROP TABLE IF EXISTS {table}")),
+            ));
+
+        // 第一次
+        migrator.up(&pool).await.unwrap();
+        // 第二次：应该跳过已应用的
+        migrator.up(&pool).await.unwrap();
+
+        let records = pool.fetch_version_records(&vt).await.unwrap();
+        assert_eq!(records.len(), 1, "should not duplicate migration records");
+
+        let _ = pool.exec(&format!("DROP TABLE IF EXISTS {table}")).await;
+        let _ = pool.exec(&format!("DROP TABLE IF EXISTS \"{vt}\"")).await;
+        pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn test_migration_up_to_partial() {
+        let (pool, prefix) = setup().await;
+        let t1 = format!("{prefix}_p1");
+        let t2 = format!("{prefix}_p2");
+        let t3 = format!("{prefix}_p3");
+        let vt = format!("{prefix}_v");
+
+        let migrator = Migrator::new()
+            .with_version_table(&vt)
+            .add(SqlMigration::new(1, "m1",
+                format!("CREATE TABLE {t1} (a INT)"),
+                Some(format!("DROP TABLE IF EXISTS {t1}"))))
+            .add(SqlMigration::new(2, "m2",
+                format!("CREATE TABLE {t2} (b INT)"),
+                Some(format!("DROP TABLE IF EXISTS {t2}"))))
+            .add(SqlMigration::new(3, "m3",
+                format!("CREATE TABLE {t3} (c INT)"),
+                Some(format!("DROP TABLE IF EXISTS {t3}"))));
+
+        // 只应用到版本 2
+        migrator.up_to(&pool, Some(2)).await.unwrap();
+
+        let records = pool.fetch_version_records(&vt).await.unwrap();
+        assert_eq!(records.len(), 2);
+        let versions: Vec<i64> = records.iter().map(|r| r.0).collect();
+        assert_eq!(versions, vec![1, 2]);
+
+        // t3 不应存在
+        let pg = pool.as_postgres().unwrap();
+        let (t3_exists,): (bool,) = sqlx::query_as(
+            "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = $1)"
+        )
+        .bind(&t3)
+        .fetch_one(pg)
+        .await
+        .unwrap();
+        assert!(!t3_exists, "t3 should not be created");
+
+        // 清理
+        for t in &[&t1, &t2, &t3] {
+            let _ = pool.exec(&format!("DROP TABLE IF EXISTS {t}")).await;
+        }
+        let _ = pool.exec(&format!("DROP TABLE IF EXISTS \"{vt}\"")).await;
+        pool.close().await;
+    }
+
+    // ── 状态查询 ───────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_migration_status() {
+        let (pool, prefix) = setup().await;
+        let vt = format!("{prefix}_v");
+
+        let migrator = Migrator::new()
+            .with_version_table(&vt)
+            .add(SqlMigration::new(1, "m1", "SELECT 1", None::<&str>))
+            .add(SqlMigration::new(2, "m2", "SELECT 2", None::<&str>));
+
+        // 应用前：全部 pending
+        let status_before = migrator.status(&pool).await.unwrap();
+        assert_eq!(status_before.len(), 2);
+        assert!(status_before.iter().all(|r| r.pending));
+
+        // 应用后：全部 applied
+        migrator.up(&pool).await.unwrap();
+        let status_after = migrator.status(&pool).await.unwrap();
+        assert!(status_after.iter().all(|r| !r.pending));
+        assert!(status_after.iter().all(|r| r.applied_at.is_some()));
+
+        let _ = pool.exec(&format!("DROP TABLE IF EXISTS \"{vt}\"")).await;
+        pool.close().await;
+    }
+
+    // ── 回滚 ───────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_migration_rollback() {
+        let (pool, prefix) = setup().await;
+        let table = format!("{prefix}_rb");
+        let vt = format!("{prefix}_v");
+
+        let migrator = Migrator::new()
+            .with_version_table(&vt)
+            .add(SqlMigration::new(
+                1, "create_rb",
+                format!("CREATE TABLE {table} (x INT)"),
+                Some(format!("DROP TABLE IF EXISTS {table}")),
+            ));
+
+        // up
+        migrator.up(&pool).await.unwrap();
+
+        // down to 0（回滚版本 1）
+        migrator.down(&pool, 0).await.unwrap();
+
+        // 验证：表被删除
+        let pg = pool.as_postgres().unwrap();
+        let (exists,): (bool,) = sqlx::query_as(
+            "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = $1)"
+        )
+        .bind(&table)
+        .fetch_one(pg)
+        .await
+        .unwrap();
+        assert!(!exists, "table should be dropped after rollback");
+
+        // 验证：版本记录被删除
+        let records = pool.fetch_version_records(&vt).await.unwrap();
+        assert!(records.is_empty(), "version records should be removed");
+
+        let _ = pool.exec(&format!("DROP TABLE IF EXISTS {table}")).await;
+        let _ = pool.exec(&format!("DROP TABLE IF EXISTS \"{vt}\"")).await;
+        pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn test_down_missing_script_returns_error() {
+        let (pool, prefix) = setup().await;
+        let vt = format!("{prefix}_v");
+
+        let migrator = Migrator::new()
+            .with_version_table(&vt)
+            .add(SqlMigration::new(1, "no_down", "SELECT 1", None::<&str>));
+
+        migrator.up(&pool).await.unwrap();
+
+        // down 应报错（无 down_sql）
+        let result = migrator.down(&pool, 0).await;
+        assert!(result.is_err(), "down without down_sql should error");
+
+        let _ = pool.exec(&format!("DROP TABLE IF EXISTS \"{vt}\"")).await;
+        pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn test_no_migrations_registered() {
+        let (pool, prefix) = setup().await;
+        let vt = format!("{prefix}_v");
+
+        let migrator = Migrator::new().with_version_table(&vt);
+        // 空 migrator 不报错
+        migrator.up(&pool).await.unwrap();
+        let status = migrator.status(&pool).await.unwrap();
+        assert!(status.is_empty());
+
+        let _ = pool.exec(&format!("DROP TABLE IF EXISTS \"{vt}\"")).await;
+        pool.close().await;
+    }
+}
+
+// ===========================================================================
+// SQLite 集成测试（内存模式，无需外部依赖）
+// ===========================================================================
+
+#[cfg(all(test, feature = "sqlite"))]
+mod sqlite_tests {
+    use super::*;
+    use crate::test_utils;
+
+    async fn pool() -> DbPool {
+        test_utils::sqlite_pool().await
+    }
+
+    #[tokio::test]
+    async fn test_apply_single_migration() {
+        let p = pool().await;
+        let prefix = test_utils::unique_prefix();
+        let table = format!("{prefix}_users");
+        let vt = format!("{prefix}_v");
+
+        let migrator = Migrator::new()
+            .with_version_table(&vt)
+            .add(SqlMigration::new(
+                1, "create_users",
+                format!("CREATE TABLE {table} (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)"),
+                Some(format!("DROP TABLE IF EXISTS {table}")),
+            ));
+
+        migrator.up(&p).await.unwrap();
+
+        // 可插入数据
+        p.exec(&format!("INSERT INTO {table} (name) VALUES ('test')")).await.unwrap();
+
+        // 版本记录存在
+        let records = p.fetch_version_records(&vt).await.unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].1, "create_users");
+
+        let _ = p.exec(&format!("DROP TABLE IF EXISTS {table}")).await;
+        let _ = p.exec(&format!("DROP TABLE IF EXISTS \"{vt}\"")).await;
+        p.close().await;
+    }
+
+    #[tokio::test]
+    async fn test_migration_idempotent() {
+        let p = pool().await;
+        let prefix = test_utils::unique_prefix();
+        let table = format!("{prefix}_i");
+        let vt = format!("{prefix}_v");
+
+        let migrator = Migrator::new()
+            .with_version_table(&vt)
+            .add(SqlMigration::new(
+                1, "init",
+                format!("CREATE TABLE IF NOT EXISTS {table} (x INTEGER)"),
+                Some(format!("DROP TABLE IF EXISTS {table}")),
+            ));
+
+        migrator.up(&p).await.unwrap();
+        migrator.up(&p).await.unwrap(); // 幂等
+
+        let records = p.fetch_version_records(&vt).await.unwrap();
+        assert_eq!(records.len(), 1);
+
+        let _ = p.exec(&format!("DROP TABLE IF EXISTS {table}")).await;
+        let _ = p.exec(&format!("DROP TABLE IF EXISTS \"{vt}\"")).await;
+        p.close().await;
+    }
+
+    #[tokio::test]
+    async fn test_migration_rollback() {
+        let p = pool().await;
+        let prefix = test_utils::unique_prefix();
+        let table = format!("{prefix}_rb");
+        let vt = format!("{prefix}_v");
+
+        let migrator = Migrator::new()
+            .with_version_table(&vt)
+            .add(SqlMigration::new(
+                1, "m1",
+                format!("CREATE TABLE {table} (x INTEGER)"),
+                Some(format!("DROP TABLE IF EXISTS {table}")),
+            ));
+
+        migrator.up(&p).await.unwrap();
+        migrator.down(&p, 0).await.unwrap();
+
+        // 回滚后版本表无记录
+        assert!(p.fetch_version_records(&vt).await.unwrap().is_empty());
+
+        let _ = p.exec(&format!("DROP TABLE IF EXISTS {table}")).await;
+        let _ = p.exec(&format!("DROP TABLE IF EXISTS \"{vt}\"")).await;
+        p.close().await;
+    }
+
+    #[tokio::test]
+    async fn test_migration_status() {
+        let p = pool().await;
+        let prefix = test_utils::unique_prefix();
+        let vt = format!("{prefix}_v");
+
+        let migrator = Migrator::new()
+            .with_version_table(&vt)
+            .add(SqlMigration::new(1, "m1", "SELECT 1", None::<&str>));
+
+        let before = migrator.status(&p).await.unwrap();
+        assert!(before[0].pending);
+
+        migrator.up(&p).await.unwrap();
+        let after = migrator.status(&p).await.unwrap();
+        assert!(!after[0].pending);
+
+        let _ = p.exec(&format!("DROP TABLE IF EXISTS \"{vt}\"")).await;
+        p.close().await;
+    }
+}
+
+// ===========================================================================
+// MySQL 集成测试
+// ===========================================================================
+
+#[cfg(all(test, feature = "mysql"))]
+mod mysql_tests {
+    use super::*;
+    use crate::test_utils;
+
+    fn require_mysql() -> String {
+        test_utils::mysql_url().expect("SKIP: MYSQL_DATABASE_URL not set")
+    }
+
+    async fn setup() -> (DbPool, String) {
+        let _url = require_mysql();
+        let pool = test_utils::mysql_pool().await.unwrap();
+        let prefix = test_utils::unique_prefix();
+        (pool, prefix)
+    }
+
+    #[tokio::test]
+    async fn test_apply_single_migration() {
+        let (p, prefix) = setup().await;
+        let table = format!("{prefix}_users");
+        let vt = format!("{prefix}_v");
+
+        let migrator = Migrator::new()
+            .with_version_table(&vt)
+            .add(SqlMigration::new(
+                1, "create_users",
+                format!("CREATE TABLE {table} (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(100))"),
+                Some(format!("DROP TABLE IF EXISTS {table}")),
+            ));
+
+        migrator.up(&p).await.unwrap();
+
+        p.exec(&format!("INSERT INTO {table} (name) VALUES ('mysql_test')")).await.unwrap();
+
+        let records = p.fetch_version_records(&vt).await.unwrap();
+        assert_eq!(records.len(), 1);
+
+        let _ = p.exec(&format!("DROP TABLE IF EXISTS {table}")).await;
+        let _ = p.exec(&format!("DROP TABLE IF EXISTS `{vt}`")).await;
+        p.close().await;
+    }
+
+    #[tokio::test]
+    async fn test_migration_rollback() {
+        let (p, prefix) = setup().await;
+        let table = format!("{prefix}_rb");
+        let vt = format!("{prefix}_v");
+
+        let migrator = Migrator::new()
+            .with_version_table(&vt)
+            .add(SqlMigration::new(
+                1, "m1",
+                format!("CREATE TABLE {table} (x INT)"),
+                Some(format!("DROP TABLE IF EXISTS {table}")),
+            ));
+
+        migrator.up(&p).await.unwrap();
+        migrator.down(&p, 0).await.unwrap();
+
+        assert!(p.fetch_version_records(&vt).await.unwrap().is_empty());
+
+        let _ = p.exec(&format!("DROP TABLE IF EXISTS {table}")).await;
+        let _ = p.exec(&format!("DROP TABLE IF EXISTS `{vt}`")).await;
+        p.close().await;
+    }
+}

@@ -145,3 +145,218 @@ impl VectorStore for QdrantVectorStore {
 fn _ensure_selector_compiles() {
     let _: Option<PointsIdsList> = None;
 }
+
+// ===========================================================================
+// Qdrant 集成测试
+// ===========================================================================
+
+#[cfg(all(test, feature = "vector-qdrant"))]
+mod qdrant_tests {
+    use super::*;
+    use crate::test_utils;
+
+    fn require_qdrant() -> String {
+        test_utils::qdrant_url().expect("SKIP: QDRANT_URL not set")
+    }
+
+    fn store() -> QdrantVectorStore {
+        let url = require_qdrant();
+        QdrantVectorStore::new(&url, None).expect("qdrant connect")
+    }
+
+    fn record(id: &str, vector: Vec<f32>) -> Record {
+        Record { id: id.into(), vector, metadata: Default::default() }
+    }
+
+    async fn setup_coll(store: &QdrantVectorStore, name: &str, dim: usize) {
+        // 确保干净起点
+        let _ = store.drop_collection(name).await;
+        store.ensure_collection(CollectionSpec { name, dim, distance: Distance::Cosine }).await.unwrap();
+    }
+
+    // ── 集合管理 ───────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_ensure_and_drop_collection() {
+        let s = store();
+        let coll = test_utils::unique_prefix();
+
+        s.ensure_collection(CollectionSpec { name: &coll, dim: 3, distance: Distance::Cosine })
+            .await.unwrap();
+        // 幂等
+        s.ensure_collection(CollectionSpec { name: &coll, dim: 3, distance: Distance::Cosine })
+            .await.unwrap();
+
+        s.drop_collection(&coll).await.unwrap();
+    }
+
+    // ── Upsert & Search ────────────────────────────────
+
+    #[tokio::test]
+    async fn test_upsert_and_search() {
+        let s = store();
+        let coll = test_utils::unique_prefix();
+        setup_coll(&s, &coll, 3).await;
+
+        s.upsert(&coll, &[
+            Record { id: "a".into(), vector: vec![1.0, 0.0, 0.0], metadata: Default::default() },
+            Record { id: "b".into(), vector: vec![0.0, 1.0, 0.0], metadata: Default::default() },
+            Record { id: "c".into(), vector: vec![1.0, 1.0, 0.0], metadata: Default::default() },
+        ]).await.unwrap();
+
+        let hits = s.search(&coll, Query {
+            vector: &[1.0, 0.0, 0.0], top_k: 2, filter: None,
+        }).await.unwrap();
+
+        assert_eq!(hits.len(), 2);
+        assert!(hits[0].score > hits[1].score, "qdrant: results sorted by score");
+
+        s.drop_collection(&coll).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_upsert_overwrites() {
+        let s = store();
+        let coll = test_utils::unique_prefix();
+        setup_coll(&s, &coll, 2).await;
+
+        s.upsert(&coll, &[record("r1", vec![1.0, 0.0])]).await.unwrap();
+
+        let mut meta = std::collections::HashMap::new();
+        meta.insert("v".into(), serde_json::json!(99));
+        s.upsert(&coll, &[Record {
+            id: "r1".into(), vector: vec![0.0, 1.0], metadata: meta.clone(),
+        }]).await.unwrap();
+
+        let hits = s.search(&coll, Query {
+            vector: &[0.0, 1.0], top_k: 1, filter: None,
+        }).await.unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].id, "r1");
+        assert_eq!(hits[0].metadata.get("v").and_then(|v| v.as_i64()), Some(99));
+
+        s.drop_collection(&coll).await.unwrap();
+    }
+
+    // ── 过滤搜索 ──────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_search_with_string_filter() {
+        let s = store();
+        let coll = test_utils::unique_prefix();
+        setup_coll(&s, &coll, 2).await;
+
+        let mut meta_a = std::collections::HashMap::new();
+        meta_a.insert("tag".into(), serde_json::json!("keep"));
+        let mut meta_b = std::collections::HashMap::new();
+        meta_b.insert("tag".into(), serde_json::json!("skip"));
+
+        s.upsert(&coll, &[
+            Record { id: "keep".into(), vector: vec![1.0, 0.0], metadata: meta_a },
+            Record { id: "skip".into(), vector: vec![0.99, 0.01], metadata: meta_b },
+        ]).await.unwrap();
+
+        let mut filter = std::collections::HashMap::new();
+        filter.insert("tag".into(), serde_json::json!("keep"));
+
+        let hits = s.search(&coll, Query {
+            vector: &[1.0, 0.0], top_k: 5, filter: Some(&filter),
+        }).await.unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].id, "keep");
+
+        s.drop_collection(&coll).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_search_with_bool_filter() {
+        let s = store();
+        let coll = test_utils::unique_prefix();
+        setup_coll(&s, &coll, 2).await;
+
+        let mut meta = std::collections::HashMap::new();
+        meta.insert("active".into(), serde_json::json!(true));
+        s.upsert(&coll, &[
+            Record { id: "yes".into(), vector: vec![1.0, 0.0], metadata: meta },
+            Record { id: "no".into(), vector: vec![0.99, 0.01], metadata: Default::default() },
+        ]).await.unwrap();
+
+        let mut filter = std::collections::HashMap::new();
+        filter.insert("active".into(), serde_json::json!(true));
+        let hits = s.search(&coll, Query {
+            vector: &[1.0, 0.0], top_k: 5, filter: Some(&filter),
+        }).await.unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].id, "yes");
+
+        s.drop_collection(&coll).await.unwrap();
+    }
+
+    // ── 删除 ───────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_delete_records() {
+        let s = store();
+        let coll = test_utils::unique_prefix();
+        setup_coll(&s, &coll, 2).await;
+
+        s.upsert(&coll, &[record("a", vec![1.0, 0.0]), record("b", vec![0.0, 1.0])]).await.unwrap();
+        s.delete(&coll, &["a".into()]).await.unwrap();
+
+        let hits = s.search(&coll, Query {
+            vector: &[1.0, 0.0], top_k: 5, filter: None,
+        }).await.unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].id, "b");
+
+        s.drop_collection(&coll).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_delete_empty_noop() {
+        let s = store();
+        let coll = test_utils::unique_prefix();
+        setup_coll(&s, &coll, 2).await;
+        s.delete(&coll, &[]).await.unwrap();
+        s.drop_collection(&coll).await.unwrap();
+    }
+
+    // ── 空操作 ─────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_upsert_empty_noop() {
+        let s = store();
+        let coll = test_utils::unique_prefix();
+        setup_coll(&s, &coll, 2).await;
+        s.upsert(&coll, &[]).await.unwrap();
+        s.drop_collection(&coll).await.unwrap();
+    }
+
+    // ── 后端名 ─────────────────────────────────────────
+
+    #[test]
+    fn test_backend_name() {
+        let s = store();
+        assert_eq!(s.backend_name(), "qdrant");
+    }
+
+    // ── L2 和 Dot 距离 ────────────────────────────────
+
+    #[tokio::test]
+    async fn test_search_l2_distance() {
+        let s = store();
+        let coll = test_utils::unique_prefix();
+        let _ = s.drop_collection(&coll).await;
+        s.ensure_collection(CollectionSpec { name: &coll, dim: 2, distance: Distance::L2 })
+            .await.unwrap();
+
+        s.upsert(&coll, &[record("near", vec![0.0, 0.0]), record("far", vec![10.0, 10.0])])
+            .await.unwrap();
+
+        let hits = s.search(&coll, Query {
+            vector: &[0.0, 0.0], top_k: 2, filter: None,
+        }).await.unwrap();
+        assert!(hits[0].score > hits[1].score);
+        s.drop_collection(&coll).await.unwrap();
+    }
+}

@@ -19,6 +19,9 @@ pub mod tenant;
 pub mod vector;
 pub mod migrate;
 
+#[cfg(test)]
+pub mod test_utils;
+
 pub use config::{
     AppConfig, CacheBackend, CacheConfig, DbConfig, DeployMode, Edition,
     RuntimeConfig, SqlBackend, VectorBackend, VectorConfig,
@@ -131,6 +134,16 @@ pub async fn build_vector_store(
             }
             #[cfg(not(feature = "vector-qdrant"))]
             { Err(DbError::Unsupported("vector-qdrant feature disabled".into())) }
+        }
+        VectorBackend::QdrantEdge => {
+            #[cfg(feature = "vector-qdrant-edge")]
+            {
+                let dir = cfg.url.as_deref().unwrap_or("./uwu_edge_data");
+                let store = vector::qdrant_edge_store::QdrantEdgeVectorStore::new(dir)?;
+                Ok(Arc::new(store))
+            }
+            #[cfg(not(feature = "vector-qdrant-edge"))]
+            { Err(DbError::Unsupported("vector-qdrant-edge feature disabled".into())) }
         }
         VectorBackend::LanceDb => {
             #[cfg(feature = "vector-lancedb")]
