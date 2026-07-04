@@ -12,9 +12,11 @@
 
 pub mod extractor;
 pub mod semantic;
+pub mod trajectory;
 
 pub use extractor::MemoryExtractorImpl;
 pub use semantic::SemanticProcessorImpl;
+pub use trajectory::TrajectoryExtractorImpl;
 
 use agent_context_db_core::{ContextUri, MemoryClass, Result};
 use async_trait::async_trait;

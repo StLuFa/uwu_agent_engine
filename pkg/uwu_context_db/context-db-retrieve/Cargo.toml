@@ -7,6 +7,7 @@ description = "agent-context-db M1 检索层：HierarchicalRetriever + IntentAna
 [dependencies]
 agent-context-db-core = { path = "../context-db-core" }
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 async-trait = "0.1"
 
 [features]
