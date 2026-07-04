@@ -65,6 +65,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "parking_lot",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
@@ -91,6 +92,7 @@ dependencies = [
  "agent-context-db-core",
  "agent-context-db-testkit",
  "async-trait",
+ "parking_lot",
  "serde",
  "serde_json",
  "tokio",
@@ -153,6 +155,7 @@ dependencies = [
  "agent-context-db-version",
  "async-trait",
  "chrono",
+ "parking_lot",
  "reqwest",
  "serde",
  "serde_json",
@@ -174,6 +177,7 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "uuid",
+ "uwu-crdt",
 ]
 
 [[package]]
