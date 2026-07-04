@@ -125,8 +125,7 @@ pub fn build_rag_context(hits: &[HybridHit]) -> String {
 
     hits
         .iter()
-        .enumerate()
-        .map(|(_i, h)| {
+        .map(|h| {
             format!(
                 "[Block {}]\n{}",
                 h.block_id,

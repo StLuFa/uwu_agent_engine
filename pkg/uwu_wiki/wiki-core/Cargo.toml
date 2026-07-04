@@ -1,6 +1,6 @@
 [package]
 name = "wiki-core"
-version = "0.1.0"
+version = "0.0.0"
 edition = "2024"
 description = "uwu_wiki 核心：Block 引擎 + Document/Op 模型 + 全部存储/LLM 端口 trait 定义（零实现）"
 

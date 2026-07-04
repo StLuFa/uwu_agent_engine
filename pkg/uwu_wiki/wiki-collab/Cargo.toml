@@ -1,6 +1,6 @@
 [package]
 name = "wiki-collab"
-version = "0.1.0"
+version = "0.0.0"
 edition = "2024"
 description = "uwu_wiki 协作层：CRDT 合并 + 权限控制（PermissionFilter 实现）"
 

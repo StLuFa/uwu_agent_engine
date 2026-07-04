@@ -108,7 +108,7 @@ pub trait LlmCapability: Send + Sync {
 ///
 /// 输入三元组 `(unit, content_version, embedding_version)`，
 /// 返回 `embedding_version < content_version` 的 unit id。
-pub fn stale_unit_ids<'a>(units: &'a [(TextUnit, u64, u64)]) -> Vec<&'a str> {
+pub fn stale_unit_ids(units: &[(TextUnit, u64, u64)]) -> Vec<&str> {
     units
         .iter()
         .filter(|(_, cv, ev)| ev < cv)

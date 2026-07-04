@@ -95,6 +95,21 @@ impl Document {
         out
     }
 
+    /// 最后一个子块 ID（InsertBlock after 用）。
+    pub fn last_child(&self, parent: &BlockId) -> Option<BlockId> {
+        self.block(parent)
+            .and_then(|p| p.children.last().cloned())
+    }
+
+    /// 文档的最后更新时间（取所有 Block 中最新的 `updated_at`）。
+    pub fn updated_at(&self) -> chrono::DateTime<chrono::Utc> {
+        self.blocks
+            .iter()
+            .map(|b| b.meta.updated_at)
+            .max()
+            .unwrap_or_else(chrono::Utc::now)
+    }
+
     /// 前序遍历子树（含 `root`），对每个 Block 调用 `f`。
     pub fn walk(&self, root: &BlockId, f: &mut impl FnMut(&Block)) {
         if let Some(b) = self.block(root) {

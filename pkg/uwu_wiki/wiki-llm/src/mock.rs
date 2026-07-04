@@ -13,6 +13,15 @@ use wiki_core::Result;
 use crate::{LlmClient, LlmOpts};
 
 // ===========================================================================
+// 类型别名
+// ===========================================================================
+
+/// Complete 回调类型。
+type CompleteFn = Arc<dyn Fn(&str, &LlmOpts) -> String + Send + Sync>;
+/// Embed 回调类型。
+type EmbedFn = Arc<dyn Fn(&[String]) -> Vec<Vec<f32>> + Send + Sync>;
+
+// ===========================================================================
 // MockLlmClient
 // ===========================================================================
 
@@ -26,8 +35,8 @@ use crate::{LlmClient, LlmOpts};
 ///     .with_embed(|texts| texts.iter().map(|_| vec![0.1; 8]).collect());
 /// ```
 pub struct MockLlmClient {
-    complete_fn: Arc<dyn Fn(&str, &LlmOpts) -> String + Send + Sync>,
-    embed_fn: Arc<dyn Fn(&[String]) -> Vec<Vec<f32>> + Send + Sync>,
+    complete_fn: CompleteFn,
+    embed_fn: EmbedFn,
 }
 
 impl MockLlmClient {

@@ -1,6 +1,6 @@
 [package]
 name = "wiki-graph"
-version = "0.1.0"
+version = "0.0.0"
 edition = "2024"
 description = "uwu_wiki 智能图：流程图/思维导图节点模型（经 TextUnit 适配调 wiki-llm）"
 

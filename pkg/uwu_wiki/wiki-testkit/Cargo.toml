@@ -1,6 +1,6 @@
 [package]
 name = "wiki-testkit"
-version = "0.1.0"
+version = "0.0.0"
 edition = "2024"
 description = "uwu_wiki 参考内存实现（仅 dev-dependency，不进生产）：全部 7 个存储端口的 HashMap 版"
 

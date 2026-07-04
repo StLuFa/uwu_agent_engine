@@ -1,6 +1,6 @@
 [package]
 name = "wiki-llm"
-version = "0.1.0"
+version = "0.0.0"
 edition = "2024"
 description = "uwu_wiki LLM 横切层：领域无关 LlmCapability + TextUnit，LlmClient 注入，不依赖引擎"
 
