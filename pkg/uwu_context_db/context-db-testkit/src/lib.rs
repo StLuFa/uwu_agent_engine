@@ -78,6 +78,7 @@ impl FsOps for MemoryContextStore {
                     uri: ContextUri(uri.clone()),
                     is_dir,
                     abstract_: latest.l0_abstract.clone(),
+                    memory_class: latest.metadata.memory_class,
                 });
             }
         }
@@ -127,11 +128,22 @@ impl FsOps for MemoryContextStore {
         Ok(hits)
     }
 
-    async fn tree(&self, root: &ContextUri, _depth: usize) -> Result<TreeNode> {
+    async fn tree(&self, root: &ContextUri, depth: usize) -> Result<TreeNode> {
+        let prefix = format!("{}/", root.0.trim_end_matches('/'));
+        let map = self.entries.lock();
+
+        // 收集所有 root 下的 URI
+        let uris: Vec<String> = map
+            .keys()
+            .filter(|k| k.starts_with(&prefix))
+            .cloned()
+            .collect();
+
+        let children = build_memory_tree(&prefix, &uris, 0, depth);
         Ok(TreeNode {
             uri: root.clone(),
             is_dir: true,
-            children: vec![],
+            children,
         })
     }
 
@@ -202,6 +214,61 @@ impl TenantOps for MemoryContextStore {
         set.dedup_by_key(|t| t.0);
         Ok(set)
     }
+}
+
+/// 递归构建内存树节点。
+fn build_memory_tree(
+    prefix: &str,
+    all_uris: &[String],
+    current_depth: usize,
+    max_depth: usize,
+) -> Vec<TreeNode> {
+    if current_depth >= max_depth {
+        return vec![];
+    }
+
+    // 提取当前层级的直接子项名称
+    let mut seen: std::collections::BTreeMap<String, bool> = std::collections::BTreeMap::new();
+    // name -> is_dir
+
+    for uri_str in all_uris {
+        let rest = match uri_str.strip_prefix(prefix) {
+            Some(r) => r,
+            None => continue,
+        };
+        if rest.is_empty() {
+            continue;
+        }
+        let slash_pos = rest.find('/');
+        if let Some(pos) = slash_pos {
+            let dir_name = &rest[..pos];
+            seen.entry(dir_name.to_string()).or_insert(true);
+        } else {
+            seen.entry(rest.to_string()).or_insert(false);
+        }
+    }
+
+    let mut children = Vec::new();
+    for (name, is_dir) in seen {
+        let child_uri = ContextUri(format!("{}{}", prefix, name));
+        if is_dir {
+            let child_prefix = format!("{}{}/", prefix, name);
+            let sub_children =
+                build_memory_tree(&child_prefix, all_uris, current_depth + 1, max_depth);
+            children.push(TreeNode {
+                uri: child_uri,
+                is_dir: true,
+                children: sub_children,
+            });
+        } else {
+            children.push(TreeNode {
+                uri: child_uri,
+                is_dir: false,
+                children: vec![],
+            });
+        }
+    }
+    children
 }
 
 #[cfg(test)]

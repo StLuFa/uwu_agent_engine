@@ -180,8 +180,8 @@ Return JSON array of repair actions:
             .map_err(|e| crate::VersionError::Storage(format!("self-heal llm: {e}")))?;
 
         // 解析 LLM 建议的修复方案
-        let _ = response;
-        Ok(vec![])
+        let actions = parse_repair_actions(&response, scope);
+        Ok(actions)
     }
 }
 
@@ -320,6 +320,57 @@ impl<V: VersionStore> CausalInference<V> {
 
         Ok(hypotheses)
     }
+}
+
+/// 解析 LLM 返回的 JSON 修复方案。
+fn parse_repair_actions(response: &str, scope: &ContextUri) -> Vec<RepairAction> {
+    #[derive(serde::Deserialize)]
+    struct RawAction {
+        action: String,
+        description: String,
+        #[serde(default)]
+        target: String,
+    }
+
+    let json_str = extract_json_array(response);
+    let raw: Vec<RawAction> = serde_json::from_str(&json_str).unwrap_or_default();
+
+    raw.into_iter()
+        .map(|r| match r.action.as_str() {
+            "rollback" => RepairAction::Rollback(CommitId::new()),
+            "patch" => RepairAction::Patch {
+                from: CommitId::new(),
+                description: r.description,
+            },
+            "supplement" => RepairAction::Supplement {
+                uri: scope.join(&r.target),
+                content: r.description,
+            },
+            "remove" => RepairAction::Remove(scope.join(&r.target)),
+            _ => RepairAction::Supplement {
+                uri: scope.clone(),
+                content: format!("unknown action: {}", r.description),
+            },
+        })
+        .collect()
+}
+
+/// 从 LLM 响应中提取 JSON 数组。
+fn extract_json_array(text: &str) -> String {
+    let text = text.trim();
+    if let Some(start) = text.find("```json") {
+        let after = &text[start + 7..];
+        if let Some(end) = after.find("```") {
+            return after[..end].trim().to_string();
+        }
+    }
+    if let Some(start) = text.find('[') {
+        if let Some(end) = text.rfind(']') {
+            return text[start..=end].to_string();
+        }
+    }
+    // fallback: wrap in array
+    format!("[{}]", text)
 }
 
 #[cfg(test)]

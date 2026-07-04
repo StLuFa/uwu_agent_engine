@@ -173,7 +173,7 @@ impl WriteGate {
         entry: &ContextEntry,
     ) -> std::result::Result<SandboxVerdict, crate::ConstraintViolation> {
         // 第一层：关键词快速拦截
-        self.keyword_check.check_write(entry)?;
+        self.keyword_check.check_write(entry).await?;
 
         // 第二层：LLM 语义审查
         if self.llm_review_enabled {
@@ -197,6 +197,7 @@ mod tests {
     async fn write_gate_keyword_check_blocks() {
         let cc = CharacterConstraint::new(vec![CoreValue {
             name: "honesty".into(),
+            description: "Always tell the truth.".into(),
             forbidden_terms: vec!["fabricate".into()],
         }]);
         let sandbox = SemanticSandbox::new(Arc::new(crate::MockLlmClient));
@@ -213,6 +214,7 @@ mod tests {
     async fn write_gate_passes_safe_content() {
         let cc = CharacterConstraint::new(vec![CoreValue {
             name: "honesty".into(),
+            description: "Always tell the truth.".into(),
             forbidden_terms: vec!["fabricate".into()],
         }]);
         let sandbox = SemanticSandbox::new(Arc::new(crate::MockLlmClient));

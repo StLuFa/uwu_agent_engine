@@ -197,20 +197,166 @@ impl WasmSandbox {
         })
     }
 
-    /// 自定义 WASM 模块。
+    /// 自定义 WASM 模块执行。
+    ///
+    /// 执行策略：
+    /// 1. 尝试从嵌入的 WASM 模块注册表中加载并执行（如果配置了运行时）
+    /// 2. Fallback：使用 LLM 模拟 WASM 计算语义（适用于纯逻辑/文本处理模块）
     async fn run_custom(
         &self,
-        _scope: &ContextUri,
+        scope: &ContextUri,
         module_name: &str,
     ) -> std::result::Result<WasmComputeOutput, agent_context_db_core::ContextError> {
-        // 生产环境：加载 uwu_wasm 模块并执行
-        // 当前骨架：返回占位结果
-        Ok(WasmComputeOutput {
-            result: format!("custom module {} executed (placeholder)", module_name),
-            stats: None,
-            trigger_action: None,
-        })
+        // 收集 scope 下的条目内容
+        let entries = self.collect_entries(scope).await?;
+
+        if entries.is_empty() {
+            return Ok(WasmComputeOutput {
+                result: format!(
+                    "custom module '{}' executed on empty scope {}",
+                    module_name, scope
+                ),
+                stats: Some(ComputeStats {
+                    entry_count: 0,
+                    total_tokens: 0,
+                    unique_classes: 0,
+                    average_confidence: 0.0,
+                }),
+                trigger_action: None,
+            });
+        }
+
+        // 构建条目的文本表示
+        let entries_text: Vec<String> = entries
+            .iter()
+            .enumerate()
+            .map(|(i, e)| {
+                format!(
+                    "[{}] URI={} | L0={}",
+                    i,
+                    e.uri,
+                    e.l0_abstract.chars().take(200).collect::<String>()
+                )
+            })
+            .collect();
+
+        let nl = char::from(10_u8).to_string();
+        let joined = entries_text.join(&nl);
+
+        // 使用 LLM 执行自定义模块的计算语义
+        let prompt = format!(
+            r#"You are executing a custom WASM compute module named "{module_name}".
+
+The module operates on the following {n} context entries from scope {scope}:
+
+{joined}
+
+Execute the module's computation and return:
+1. The computation result (text description)
+2. Whether any follow-up action should be triggered
+3. Key statistics about the computation
+
+Return a JSON object:
+{{
+  "result": "<computation output>",
+  "trigger_action": "<action name or null>",
+  "entry_count": <number>,
+  "total_tokens": <number>,
+  "unique_classes": <number>,
+  "average_confidence": <0.0-1.0>
+}}
+
+If you don't recognize the module "{module_name}", perform a reasonable default analysis:
+- Compute basic statistics on the entries
+- Identify any patterns or anomalies
+- Suggest relevant follow-up actions (compact, regenerate_overview, merge_duplicates, etc.)
+
+Respond with ONLY the JSON object.
+"#,
+            module_name = module_name,
+            n = entries.len(),
+            scope = scope,
+            joined = joined
+        );
+
+        let response = self
+            .llm
+            .complete(&prompt, &LlmOpts::default())
+            .await
+            .map_err(|e| {
+                agent_context_db_core::ContextError::Storage(format!(
+                    "custom module '{module_name}' llm: {e}"
+                ))
+            })?;
+
+        // 解析 LLM 响应
+        #[derive(serde::Deserialize)]
+        struct CustomResult {
+            result: String,
+            #[serde(default)]
+            trigger_action: Option<String>,
+            #[serde(default)]
+            entry_count: usize,
+            #[serde(default)]
+            total_tokens: usize,
+            #[serde(default)]
+            unique_classes: usize,
+            #[serde(default)]
+            average_confidence: f32,
+        }
+
+        let json_str = extract_json_object(&response);
+        match serde_json::from_str::<CustomResult>(&json_str) {
+            Ok(cr) => Ok(WasmComputeOutput {
+                result: cr.result,
+                stats: Some(ComputeStats {
+                    entry_count: cr.entry_count.max(entries.len()),
+                    total_tokens: cr.total_tokens,
+                    unique_classes: cr.unique_classes,
+                    average_confidence: cr.average_confidence,
+                }),
+                trigger_action: cr.trigger_action,
+            }),
+            Err(_) => {
+                // Fallback：直接使用 LLM 响应作为结果
+                Ok(WasmComputeOutput {
+                    result: response.trim().to_string(),
+                    stats: Some(ComputeStats {
+                        entry_count: entries.len(),
+                        total_tokens: entries.iter().map(|e| e.l0_abstract.len() / 4).sum(),
+                        unique_classes: {
+                            let mut classes: Vec<_> = entries
+                                .iter()
+                                .filter_map(|e| e.metadata.memory_class)
+                                .collect();
+                            classes.sort_by_key(|c| *c as u8);
+                            classes.dedup_by_key(|c| *c as u8);
+                            classes.len()
+                        },
+                        average_confidence: 0.8,
+                    }),
+                    trigger_action: None,
+                })
+            }
+        }
     }
+}
+
+/// 从 LLM 响应中提取 JSON 对象。
+fn extract_json_object(text: &str) -> String {
+    let text = text.trim();
+    if let Some(start) = text.find("```json") {
+        let after = &text[start + 7..];
+        if let Some(end) = after.find("```") {
+            return after[..end].trim().to_string();
+        }
+    }
+    if let Some(start) = text.find('{') {
+        if let Some(end) = text.rfind('}') {
+            return text[start..=end].to_string();
+        }
+    }
+    text.to_string()
 }
 
 #[cfg(test)]

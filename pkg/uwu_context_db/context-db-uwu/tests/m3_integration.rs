@@ -16,6 +16,25 @@ fn tenant() -> TenantId {
     TenantId(uuid::Uuid::nil())
 }
 
+fn make_snapshot(agent_id: &str, scope: StateScope, pred_error: f32, payload: serde_json::Value) -> StateSnapshot {
+    StateSnapshot::new(
+        agent_id.to_string(),
+        scope,
+        0,
+        None,
+        pred_error,
+        payload,
+    )
+}
+
+fn make_core_value(name: &str, description: &str, forbidden_terms: Vec<&str>) -> CoreValue {
+    CoreValue {
+        name: name.to_string(),
+        description: description.to_string(),
+        forbidden_terms: forbidden_terms.into_iter().map(|s| s.to_string()).collect(),
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // StateBridge 测试
 // ═══════════════════════════════════════════════════════════════════════════
@@ -26,12 +45,12 @@ async fn state_checkpoint_and_load_roundtrip() {
     let versions = Arc::new(MemoryVersionStore::new());
     let bridge = StateBridge::new(store.clone(), versions);
 
-    let snap = StateSnapshot {
-        agent_id: "a1".into(),
-        scope: StateScope::Mid,
-        accumulated_pred_error: 0.15,
-        payload: serde_json::json!({"mood": "neutral", "ws_size": 42}),
-    };
+    let snap = make_snapshot(
+        "a1",
+        StateScope::Mid,
+        0.15,
+        serde_json::json!({"mood": "neutral", "ws_size": 42}),
+    );
 
     // checkpoint
     let v = bridge
@@ -57,12 +76,7 @@ async fn state_fork_promote_and_discard() {
     let bridge = StateBridge::new(store.clone(), versions.clone());
 
     // 先 checkpoint 一个基线
-    let snap = StateSnapshot {
-        agent_id: "a1".into(),
-        scope: StateScope::Mid,
-        accumulated_pred_error: 0.1,
-        payload: serde_json::json!({"v": 1}),
-    };
+    let snap = make_snapshot("a1", StateScope::Mid, 0.1, serde_json::json!({"v": 1}));
     bridge
         .checkpoint("a1", StateScope::Mid, &snap, tenant())
         .await
@@ -80,12 +94,7 @@ async fn state_fork_promote_and_discard() {
     let fork2 = bridge.fork("a1", StateScope::Mid).await.unwrap();
 
     // 在 fork2 上做 checkpoint（推到新版本）
-    let snap2 = StateSnapshot {
-        agent_id: "a1".into(),
-        scope: StateScope::Mid,
-        accumulated_pred_error: 0.05,
-        payload: serde_json::json!({"v": 2}),
-    };
+    let snap2 = make_snapshot("a1", StateScope::Mid, 0.05, serde_json::json!({"v": 2}));
     bridge
         .checkpoint("a1", StateScope::Mid, &snap2, tenant())
         .await
@@ -250,35 +259,29 @@ async fn metacog_time_window_filters_correctly() {
 // CharacterConstraint 测试
 // ═══════════════════════════════════════════════════════════════════════════
 
-#[test]
-fn character_constraint_blocks_forbidden_terms() {
+#[tokio::test]
+async fn character_constraint_blocks_forbidden_terms() {
     let cc = CharacterConstraint::new(vec![
-        CoreValue {
-            name: "honesty".into(),
-            forbidden_terms: vec!["fabricate".into(), "lie".into()],
-        },
-        CoreValue {
-            name: "safety".into(),
-            forbidden_terms: vec!["rm -rf".into(), "DROP TABLE".into()],
-        },
+        make_core_value("honesty", "Always tell the truth.", vec!["fabricate", "lie"]),
+        make_core_value("safety", "Avoid dangerous commands.", vec!["rm -rf", "DROP TABLE"]),
     ]);
 
     let uri = ContextUri::parse("uwu://t/agent/a/memories/cases/c1").unwrap();
 
     // 违反 honesty
     let bad = ContextEntry::new_text(uri.clone(), tenant(), "we should lie about the result");
-    assert!(cc.check_write(&bad).is_err());
+    assert!(cc.check_write(&bad).await.is_err());
 
     // 违反 safety
     let dangerous = ContextEntry::new_text(uri.clone(), tenant(), "just run rm -rf /");
-    assert!(cc.check_write(&dangerous).is_err());
+    assert!(cc.check_write(&dangerous).await.is_err());
 
     // 通过
     let good = ContextEntry::new_text(uri.clone(), tenant(), "we found the bug and fixed it");
-    assert!(cc.check_write(&good).is_ok());
+    assert!(cc.check_write(&good).await.is_ok());
 
     // 违反 l1_overview 也应拦截
     let mut hidden = ContextEntry::new_text(uri.clone(), tenant(), "all good here");
     hidden.l1_overview = Some("let's fabricate the data".into());
-    assert!(cc.check_write(&hidden).is_err());
+    assert!(cc.check_write(&hidden).await.is_err());
 }

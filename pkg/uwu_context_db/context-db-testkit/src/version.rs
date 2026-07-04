@@ -343,11 +343,27 @@ impl VersionStore for MemoryVersionStore {
         let commit_id = match ref_ {
             VersionRef::Commit(id) => id,
             VersionRef::Head => {
-                // Head is scope-dependent; we try to resolve from snapshots
-                // For a generic read, we just search all snapshots
-                return Err(VersionError::NotFound(
-                    "Head ref requires scope; use Commit(id) instead".into(),
-                ));
+                // Resolve Head from URI: extract scope as the URI's first segments
+                // e.g. "uwu://t1/agent/a1/state/mid" -> try to find head for this scope
+                let uri_str = uri.to_string();
+                // Try progressively shorter scope prefixes
+                let segments: Vec<&str> = uri_str.split('/').collect();
+                let mut found = None;
+                for i in (2..=segments.len()).rev() {
+                    let candidate_scope = segments[..i].join("/");
+                    if let Some(head_id) = self.head(&candidate_scope) {
+                        found = Some(head_id);
+                        break;
+                    }
+                }
+                match found {
+                    Some(id) => id,
+                    None => {
+                        return Err(VersionError::NotFound(format!(
+                            "Head ref could not resolve from uri: {uri_str}"
+                        )));
+                    }
+                }
             }
             ref other => {
                 return Err(VersionError::NotFound(format!(

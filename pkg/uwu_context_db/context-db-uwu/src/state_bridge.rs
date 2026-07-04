@@ -15,6 +15,8 @@ use agent_context_db_version::{
     BranchName, BranchType, CommitId, MergeResult, MergeStrategy, VersionStore, VersionError,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 // ===========================================================================
@@ -22,14 +24,54 @@ use std::sync::Arc;
 // ===========================================================================
 
 /// State 快照（M3 骨架，真实类型来自 agent-state，在对接时替换）。
+///
+/// 提供完整的 State 快照结构，包含元数据、版本追踪和内容哈希，
+/// 支持高效的 fork 比较和真值源重算。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StateSnapshot {
     pub agent_id: String,
     pub scope: StateScope,
+    /// 快照创建时间。
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+    /// 单调递增的快照序号（每 checkpoint 一次 +1）。
+    pub sequence: u64,
+    /// 父快照的 URI（用于追溯 lineage）。
+    pub parent_snapshot: Option<ContextUri>,
+    /// State 内容哈希（SHA-256，用于快速相等比较，避免深度 JSON 对比）。
+    pub state_hash: String,
     /// 派生标量：从事实层重算的 EMA 投影（见 §6.3 真值源边界）。
     pub accumulated_pred_error: f32,
-    /// 完整 State JSON。
+    /// 完整 State JSON（事实层）。
     pub payload: serde_json::Value,
+}
+
+impl StateSnapshot {
+    /// 创建新快照（自动计算哈希和时间戳）。
+    pub fn new(
+        agent_id: String,
+        scope: StateScope,
+        sequence: u64,
+        parent_snapshot: Option<ContextUri>,
+        pred_error: f32,
+        payload: serde_json::Value,
+    ) -> Self {
+        let state_hash = compute_hash(&payload);
+        Self {
+            agent_id,
+            scope,
+            timestamp: chrono::Utc::now(),
+            sequence,
+            parent_snapshot,
+            state_hash,
+            accumulated_pred_error: pred_error,
+            payload,
+        }
+    }
+
+    /// 检查两个快照的内容是否相同（按哈希）。
+    pub fn content_eq(&self, other: &StateSnapshot) -> bool {
+        self.state_hash == other.state_hash
+    }
 }
 
 impl StateSnapshot {
@@ -49,6 +91,13 @@ impl StateSnapshot {
     pub fn snapshot_uri(agent_id: &str, scope: StateScope) -> ContextUri {
         Self::dir_uri(agent_id, scope).join("snapshot.json")
     }
+}
+
+/// 计算 State 载荷的内容哈希（用于快速相等比较）。
+fn compute_hash(payload: &serde_json::Value) -> String {
+    let mut hasher = DefaultHasher::new();
+    payload.to_string().hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
 }
 
 // ===========================================================================
@@ -119,12 +168,15 @@ where
             }
             Ok(ContentPayload::Abstract(s)) => {
                 // L0 fallback：从摘要中重建最小快照
-                Ok(StateSnapshot {
-                    agent_id: agent_id.to_string(),
+                let payload = serde_json::json!({"abstract": s});
+                Ok(StateSnapshot::new(
+                    agent_id.to_string(),
                     scope,
-                    accumulated_pred_error: 0.0,
-                    payload: serde_json::json!({"abstract": s}),
-                })
+                    0,
+                    None,
+                    0.0,
+                    payload,
+                ))
             }
             Ok(ContentPayload::Detail(_)) => {
                 Err(agent_context_db_core::ContextError::Unsupported(
@@ -240,16 +292,64 @@ where
     // ── pred error ───────────────────────────────────────────────
 
     /// 比较 fork 与基线的预测误差（读派生标量 `accumulated_pred_error`）。
+    ///
+    /// 返回 (fork_pred_error - baseline_pred_error) 作为差异信号：
+    /// - 正值表示 fork 分支的预测误差大于基线（策略表现更差）
+    /// - 负值表示 fork 分支预测误差更小（策略有所改善）
     pub async fn compare_fork_pred_error(
         &self,
         agent_id: &str,
         scope: StateScope,
         fork: &ForkHandle,
     ) -> Result<f32> {
+        // 加载基线（main 分支的最新状态）
         let baseline = self.load(agent_id, scope).await?;
-        // fork 后当前 HEAD 的 state 需要通过 reload 获取（取最新版本）
-        // 简化：直接用 baseline 的 pred_error，实际需要重新 load
-        let _ = fork;
-        Ok(baseline.accumulated_pred_error)
+
+        // 读取 fork 分支的最新状态
+        // 通过 version 层读取 fork 分支 HEAD 对应的 state 快照
+        let fork_snap_uri = StateSnapshot::snapshot_uri(agent_id, scope);
+        let fork_pred_error = match self
+            .versions
+            .read_at(
+                &fork_snap_uri,
+                agent_context_db_version::VersionRef::Commit(fork.baseline_commit.clone()),
+                agent_context_db_core::ContentLevel::L2,
+            )
+            .await
+        {
+            Ok(agent_context_db_core::ContentPayload::Detail(bytes)) => {
+                match serde_json::from_slice::<StateSnapshot>(&bytes) {
+                    Ok(snap) => snap.accumulated_pred_error,
+                    Err(_) => {
+                        // Fallback: try L1
+                        match self
+                            .versions
+                            .read_at(
+                                &fork_snap_uri,
+                                agent_context_db_version::VersionRef::Commit(
+                                    fork.baseline_commit.clone(),
+                                ),
+                                agent_context_db_core::ContentLevel::L1,
+                            )
+                            .await
+                        {
+                            Ok(agent_context_db_core::ContentPayload::Overview(json_str)) => {
+                                serde_json::from_str::<StateSnapshot>(&json_str)
+                                    .map(|s| s.accumulated_pred_error)
+                                    .unwrap_or(baseline.accumulated_pred_error)
+                            }
+                            _ => baseline.accumulated_pred_error,
+                        }
+                    }
+                }
+            }
+            _ => {
+                // 无法读取 fork 状态时，返回 baseline（零差异）
+                baseline.accumulated_pred_error
+            }
+        };
+
+        // 返回差异信号
+        Ok(fork_pred_error - baseline.accumulated_pred_error)
     }
 }
