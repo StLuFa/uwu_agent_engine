@@ -314,8 +314,8 @@ pub trait SemanticProcessorShim: Send + Sync {
     /// 为 URI 生成 L0 摘要。
     async fn generate_abstract(&self, uri: &ContextUri) -> Result<String>;
 
-    /// 自底向上聚合：为目录生成 L1 概览。
-    async fn aggregate_upward(&self, root: &ContextUri) -> Result<()>;
+    /// 自底向上聚合：为目录生成 L1 概览，返回生成的文本。
+    async fn aggregate_upward(&self, root: &ContextUri) -> Result<String>;
 }
 
 #[cfg(test)]

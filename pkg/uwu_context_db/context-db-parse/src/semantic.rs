@@ -75,12 +75,12 @@ Respond with ONLY the overview text.
             ))
     }
 
-    async fn aggregate_upward(&self, root: &ContextUri) -> Result<()> {
+    async fn aggregate_upward(&self, root: &ContextUri) -> Result<String> {
         // 自底向上聚合：
         // 1. 遍历 root 的直接子条目（文件），读取其 L0 摘要
         // 2. 遍历 root 的直接子目录，递归收集摘要
         // 3. 将所有子摘要合成父目录的 L1 概览
-        // 4. 将合成结果写回 root（通过 L1 写入）
+        // 4. 返回生成的 L1 概览，由调用方决定是否写入存储
 
         let entries = self.fs.ls(root).await?;
 
@@ -95,13 +95,14 @@ Respond with ONLY the overview text.
                 Err(_) => {
                     // 目录：递归聚合
                     if entry.is_dir {
-                        // 尝试递归聚合子目录
-                        let _ = Box::pin(self.aggregate_upward(&entry.uri)).await;
-                        // 聚合后尝试读取子目录的 L1（刚生成的概览）
-                        if let Ok(ContentPayload::Overview(ov)) =
-                            self.fs.read(&entry.uri, ContentLevel::L1).await
-                        {
-                            child_abstracts.push((entry.uri.clone(), ov));
+                        // 递归聚合子目录
+                        match Box::pin(self.aggregate_upward(&entry.uri)).await {
+                            Ok(overview) => {
+                                child_abstracts.push((entry.uri.clone(), overview));
+                            }
+                            Err(_) => {
+                                // 子目录聚合失败，跳过
+                            }
                         }
                     }
                 }
@@ -109,7 +110,7 @@ Respond with ONLY the overview text.
         }
 
         if child_abstracts.is_empty() {
-            return Ok(());
+            return Ok(format!("(empty directory: {root})"));
         }
 
         // 构建 LLM 合成提示
@@ -141,38 +142,11 @@ Format as Markdown. Respond with ONLY the overview text.
             ..Default::default()
         };
 
-        let overview = self.llm.complete(&prompt, &opts).await
+        self.llm.complete(&prompt, &opts).await
             .map(|s| s.trim().to_string())
             .map_err(|e| agent_context_db_core::ContextError::Storage(
                 format!("llm aggregate_upward: {e}")
-            ))?;
-
-        // Write synthesized overview as the root's L1
-        // Construct a minimal entry with the overview
-        let entry = agent_context_db_core::ContextEntry {
-            uri: root.clone(),
-            tenant: agent_context_db_core::TenantId(uuid::Uuid::nil()),
-            l0_abstract: format!("directory overview for {root}"),
-            l1_overview: Some(overview),
-            l2_detail_uri: None,
-            content_type: agent_context_db_core::ContentType::Text,
-            metadata: agent_context_db_core::ContextMeta::default(),
-            mvcc_version: agent_context_db_core::MvccVersion(0),
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
-        };
-
-        // Use ContentRepo if available via the FsOps (we need write access)
-        // Since FsOps is read-only, we return the overview as a side-effect
-        // and let the caller handle write. The overview is stored in the LLM response
-        // for the caller to use.
-        //
-        // For now, we write via the store if it implements ContentRepo.
-        // If FsOps doesn't support writes, the overview is still generated
-        // and returned via the side-effect of LLM completion.
-        let _ = entry;
-
-        Ok(())
+            ))
     }
 
     async fn multimodal_to_text(&self, uri: &ContextUri) -> Result<(String, String)> {
@@ -227,14 +201,19 @@ Return your response as a JSON object:
                     }
                 }
             }
-            Ok(ContentPayload::Detail(_)) => {
-                // Empty detail — return unsupported
-                Err(agent_context_db_core::ContextError::Unsupported(
-                    format!("multimodal_to_text received empty content for {uri}")
-                ))
+            Ok(ContentPayload::Detail(bytes)) if bytes.is_empty() => {
+                // Empty detail — return empty abstract
+                Ok((format!("(empty content at {uri})"), String::new()))
+            }
+            Ok(ContentPayload::Abstract(s)) => {
+                // Already text — return as-is
+                Ok((s.clone(), String::new()))
+            }
+            Ok(ContentPayload::Overview(s)) => {
+                // Already text — return overview as abstract
+                Ok((s.chars().take(200).collect(), s))
             }
             Ok(_) => {
-                // Non-Detail payload — return as-is text
                 Err(agent_context_db_core::ContextError::Unsupported(
                     format!("multimodal_to_text requires L2 Detail content for {uri}")
                 ))

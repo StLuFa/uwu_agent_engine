@@ -40,7 +40,7 @@ members = [
     "crates/agent-sidecar-monitor",
     # 知识库
     "crates/agent-wiki",
-    # uwu_wiki 知识库子系统（模块化解耦骨架）
+    # uwu_wiki 知识库子系统
     "pkg/uwu_wiki/wiki-core",
     "pkg/uwu_wiki/wiki-llm",
     "pkg/uwu_wiki/wiki-collab",

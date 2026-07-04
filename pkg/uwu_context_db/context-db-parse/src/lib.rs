@@ -31,7 +31,8 @@ use uuid::Uuid;
 pub trait SemanticProcessor: Send + Sync {
     async fn generate_abstract(&self, uri: &ContextUri) -> Result<String>;
     async fn generate_overview(&self, uri: &ContextUri) -> Result<String>;
-    async fn aggregate_upward(&self, root: &ContextUri) -> Result<()>;
+    /// 自底向上聚合：返回生成的 L1 概览文本。
+    async fn aggregate_upward(&self, root: &ContextUri) -> Result<String>;
     /// 多模态 → (abstract, overview) 文本对。
     async fn multimodal_to_text(&self, uri: &ContextUri) -> Result<(String, String)>;
 }

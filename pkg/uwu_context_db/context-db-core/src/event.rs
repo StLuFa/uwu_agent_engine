@@ -155,6 +155,8 @@ pub enum OverrideAction {
 }
 
 /// 继承链管理器。
+///
+/// 运行时维护 Agent 继承 DAG；支持序列化到 context-db 和从 context-db 恢复。
 #[derive(Default)]
 pub struct InheritanceChain {
     nodes: parking_lot::Mutex<Vec<InheritanceNode>>,
@@ -194,6 +196,27 @@ impl InheritanceChain {
         } else {
             Some((uri.clone(), false))
         }
+    }
+
+    /// 序列化为 JSON（用于持久化到 context-db）。
+    pub fn serialize_to_json(&self) -> String {
+        let nodes = self.nodes.lock();
+        serde_json::to_string(&*nodes).unwrap_or_else(|_| "[]".to_string())
+    }
+
+    /// 从 JSON 反序列化（从 context-db 恢复）。
+    pub fn deserialize_from_json(&self, json: &str) -> Result<(), String> {
+        let parsed: Vec<InheritanceNode> =
+            serde_json::from_str(json).map_err(|e| format!("deserialize: {e}"))?;
+        let mut nodes = self.nodes.lock();
+        nodes.clear();
+        nodes.extend(parsed);
+        Ok(())
+    }
+
+    /// 返回所有节点的快照（只读）。
+    pub fn snapshot(&self) -> Vec<InheritanceNode> {
+        self.nodes.lock().clone()
     }
 }
 

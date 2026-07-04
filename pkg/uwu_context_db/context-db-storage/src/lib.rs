@@ -110,24 +110,41 @@ pub async fn service_from_uwu_db(
     Ok(ContextDbService::new(content, index))
 }
 
-/// 空实现：无向量后端时静默返回空结果。
+/// 空实现：无向量后端时的降级方案。
+///
+/// 所有操作记录 warn 日志后静默返回，确保系统在无向量后端的
+/// 环境下不崩溃，但向量召回功能降级为空结果。
 struct NoopVectorIndex;
 
 #[async_trait]
 impl VectorIndex for NoopVectorIndex {
-    async fn upsert(&self, _collection: &str, _point: IndexPoint) -> Result<()> {
+    async fn upsert(&self, collection: &str, point: IndexPoint) -> Result<()> {
+        tracing::warn!(
+            collection = %collection,
+            uri = %point.uri,
+            "NoopVectorIndex: upsert dropped (no vector backend configured)"
+        );
         Ok(())
     }
     async fn search(
         &self,
-        _collection: &str,
+        collection: &str,
         _query: Vec<f32>,
         _top_k: usize,
         _filter: Option<serde_json::Value>,
     ) -> Result<Vec<IndexHit>> {
+        tracing::warn!(
+            collection = %collection,
+            "NoopVectorIndex: search returned empty (no vector backend configured)"
+        );
         Ok(vec![])
     }
-    async fn delete(&self, _collection: &str, _uri: &str) -> Result<()> {
+    async fn delete(&self, collection: &str, uri: &str) -> Result<()> {
+        tracing::warn!(
+            collection = %collection,
+            uri = %uri,
+            "NoopVectorIndex: delete ignored (no vector backend configured)"
+        );
         Ok(())
     }
 }
