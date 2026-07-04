@@ -1,14 +1,20 @@
 //! # agent-context-db-parse (L5 解析层)
 //!
-//! 三个正交解析端口：
-//! - [`SemanticProcessor`]：自底向上生成 L0/L1 + 多模态转文本
-//! - [`MemoryExtractor`]：8 类记忆提取 + LLM 去重
-//! - [`TrajectoryExtractor`]：会话→Trajectory，多轨迹→Experience
+//! 三个正交解析端口 + 具体实现：
+//! - [`SemanticProcessor`] trait + [`SemanticProcessorImpl`]
+//! - [`MemoryExtractor`] trait + [`MemoryExtractorImpl`]
+//! - [`TrajectoryExtractor`] trait
 //!
 //! ## 解耦约束
 //!
-//! - 仅依赖 core 类型与端口；不依赖 session/compressor（被它们调用，非反向）。
-//! - 全部为端口（零实现），LLM 具体实现由 core 的 `LlmClient` 注入。
+//! - trait 仅依赖 core 类型与端口
+//! - 实现通过 `LlmClient` 注入（Mock 或 Http）
+
+pub mod extractor;
+pub mod semantic;
+
+pub use extractor::MemoryExtractorImpl;
+pub use semantic::SemanticProcessorImpl;
 
 use agent_context_db_core::{ContextUri, MemoryClass, Result};
 use async_trait::async_trait;

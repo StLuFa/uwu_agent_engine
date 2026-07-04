@@ -17,4 +17,7 @@ thiserror = "1"
 default = []
 
 [dev-dependencies]
+agent-context-db-testkit = { path = "../context-db-testkit" }
 tokio = { version = "1", features = ["rt", "macros"] }
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4" }

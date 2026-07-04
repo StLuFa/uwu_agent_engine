@@ -11,6 +11,8 @@ agent-context-db-parse = { path = "../context-db-parse" }
 serde = { version = "1", features = ["derive"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 async-trait = "0.1"
+tokio = { version = "1", features = ["sync", "time", "rt"] }
+parking_lot = "0.12"
 
 [features]
 default = []

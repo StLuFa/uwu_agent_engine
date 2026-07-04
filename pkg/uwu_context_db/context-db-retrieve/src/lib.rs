@@ -2,10 +2,22 @@
 //!
 //! 分层检索：意图分析 → 目录递归 → Rerank，全程可产生检索轨迹。
 //!
+//! ## 模块
+//!
+//! - [`intent`]：`RuleBasedIntentAnalyzer`（关键词匹配） + `IntentAnalyzer` trait
+//! - [`retriever`]：`HierarchicalRetrieverImpl`（完整检索管线实现）
+//! - 本模块：trait 定义 + `ScoreReranker`
+//!
 //! ## 解耦约束
 //!
-//! - 仅依赖 core 的 **`FsOps` 窄端口**（只读寻址），不依赖具体后端（PG/Qdrant）。
+//! - 仅依赖 core 的 **`FsOps` 窄端口**（只读寻址）和可选的 `VectorIndex`，不依赖具体后端。
 //! - 可用内存版 `FsOps` mock 单测，不启 PG（见 dev-tests）。
+
+pub mod intent;
+pub mod retriever;
+
+pub use intent::RuleBasedIntentAnalyzer;
+pub use retriever::HierarchicalRetrieverImpl;
 
 use agent_context_db_core::{
     ContentLevel, ContentPayload, ContextUri, MemoryClass, Result,

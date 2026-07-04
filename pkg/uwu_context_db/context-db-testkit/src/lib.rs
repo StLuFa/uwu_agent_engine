@@ -1,9 +1,14 @@
 //! # agent-context-db-testkit
 //!
-//! `FsOps` / `ContentRepo` / `VersionOps` / `TenantOps` 四个窄端口的内存参考实现，
-//! 仅用于测试/开发。生产环境由 `agent-context-db` 注入 PG + Qdrant 后端。
+//! 存储端口内存参考实现，仅用于测试/开发：
+//! - [`MemoryContextStore`]：`FsOps` + `ContentRepo` + `VersionOps` + `TenantOps` 四端口
+//! - [`MemoryVersionStore`]：`VersionStore`（Commit/Branch/Tag DAG）
 //!
-//! 用于 M1 检索层单测（无需启 PG）。
+//! 生产环境由 `agent-context-db-storage` 注入 PG + Qdrant 后端。
+
+pub mod version;
+
+pub use version::MemoryVersionStore;
 
 use agent_context_db_core::{
     ContentLevel, ContentPayload, ContentRepo, ContextDiff, ContextEntry, ContextError, ContextUri,

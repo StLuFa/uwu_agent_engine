@@ -20,6 +20,7 @@ pub mod llm;
 pub mod model;
 pub mod store;
 pub mod uri;
+pub mod vector;
 
 pub use error::{ContextError, Result};
 pub use llm::{LlmClient, LlmError, LlmOpts};
@@ -30,3 +31,4 @@ pub use model::{
 };
 pub use store::{ContentRepo, ContextStore, FsOps, TenantOps, VersionOps};
 pub use uri::{ContextUri, UriCategory, SCHEME};
+pub use vector::{IndexHit, IndexPoint, VectorIndex};

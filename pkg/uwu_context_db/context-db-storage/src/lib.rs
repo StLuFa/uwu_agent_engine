@@ -1,61 +1,37 @@
 //! # agent-context-db-storage (L7 存储层)
 //!
-//! 双层存储的**端口 + 装配根**：
-//! - [`VectorIndex`]：Qdrant 索引层端口（URI+向量+元数据指针）。
-//! - `ContextStore` 内容层端口来自 `core`（PG 真相源），此处不重复定义。
+//! 双层存储的**适配器 + 装配根**：
+//! - [`PgContextStore`]：基于 `uwu_database::DbPool` 的内容层适配器，实现全部四个窄端口。
+//! - [`UwuVectorIndex`]：将 `uwu_database::VectorStore` 适配为 core 的 `VectorIndex`。
 //! - [`ContextDbService`]：composition root —— 唯一同时持有内容层与索引层的地方。
+//! - `IndexPoint` / `IndexHit` / `VectorIndex` 从 `agent_context_db_core` re-export。
 //!
 //! ## 解耦约束
 //!
-//! - 后端具体类型（PgPool / QdrantClient）**只在此层的适配器出现一次**，
-//!   上层（retrieve/session/parse）只依赖 core 窄端口，永不感知后端。
-//! - 本 crate 只给端口与装配骨架；真实 PG/Qdrant 适配器由宿主 crate 实现。
+//! - 后端具体类型只在此层出现；上层（retrieve/session/parse）只依赖 core 窄端口。
+//! - PG 适配器通过 `uwu_database` 基础库注入连接池与向量后端，不自行管理连接。
+
+pub mod migrations;
+pub mod pg;
+pub mod vector_index;
+
+// Re-export core vector types（来源统一）
+pub use agent_context_db_core::{IndexHit, IndexPoint, VectorIndex};
+
+pub use migrations::context_db_migrations;
+pub use pg::PgContextStore;
+pub use vector_index::UwuVectorIndex;
 
 use agent_context_db_core::Result;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-
-// ===========================================================================
-// 索引层端口：向量检索（Qdrant 适配）
-// ===========================================================================
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IndexPoint {
-    /// 指向内容层的 uwu:// URI 字符串。
-    pub uri: String,
-    pub vector: Vec<f32>,
-    #[serde(default)]
-    pub payload: serde_json::Value,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IndexHit {
-    pub uri: String,
-    pub score: f32,
-    pub payload: serde_json::Value,
-}
-
-/// 索引层端口 —— 检索层通过它做向量召回，不感知 Qdrant。
-#[async_trait]
-pub trait VectorIndex: Send + Sync {
-    async fn upsert(&self, collection: &str, point: IndexPoint) -> Result<()>;
-    async fn search(
-        &self,
-        collection: &str,
-        query: Vec<f32>,
-        top_k: usize,
-        filter: Option<serde_json::Value>,
-    ) -> Result<Vec<IndexHit>>;
-    async fn delete(&self, collection: &str, uri: &str) -> Result<()>;
-}
 
 // ===========================================================================
 // 装配根：唯一持有内容层 + 索引层的地方
 // ===========================================================================
 
-/// composition root。内容层用 core 的 `ContextStore`（任意后端），
-/// 索引层用本层 `VectorIndex`。上层拿到的是它暴露的窄端口。
+/// Composition root。内容层用任意 `ContextStore`（PG 或 Memory），
+/// 索引层用 `VectorIndex`。上层拿到的是它暴露的窄端口克隆。
 pub struct ContextDbService<S> {
     content: Arc<S>,
     index: Arc<dyn VectorIndex>,
@@ -65,6 +41,7 @@ impl<S> ContextDbService<S>
 where
     S: agent_context_db_core::ContextStore + 'static,
 {
+    /// 通用构造器：注入任意实现了 ContextStore 的内容层 + VectorIndex。
     pub fn new(content: Arc<S>, index: Arc<dyn VectorIndex>) -> Self {
         Self { content, index }
     }
@@ -74,69 +51,169 @@ where
         self.content.clone()
     }
 
+    /// 交出内容层的写端口。
+    pub fn content_repo(&self) -> Arc<S> {
+        self.content.clone()
+    }
+
     /// 交出索引层端口。
     pub fn vector_index(&self) -> Arc<dyn VectorIndex> {
         self.index.clone()
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use agent_context_db_core::{
-        ContentLevel, ContentPayload, ContextEntry, ContextUri, DirEntry, FindPattern, GrepHit,
-        MvccVersion, TenantId, TreeNode, VersionEntry, ContextDiff,
+impl<S> Clone for ContextDbService<S> {
+    fn clone(&self) -> Self {
+        Self {
+            content: self.content.clone(),
+            index: self.index.clone(),
+        }
+    }
+}
+
+// ===========================================================================
+// uwu_database 便捷构造器
+// ===========================================================================
+
+/// 使用 `uwu_database::Database` 快速构造 `ContextDbService<PgContextStore>`。
+///
+/// 内容层自动从 `DbPool` 构建 `PgContextStore`；
+/// 向量层优先使用 `Database.vector`，无配置时回退到空实现。
+///
+/// 首次调用会自动应用 context-db 的 SQL 迁移。
+pub async fn service_from_uwu_db(
+    db: uwu_database::Database,
+) -> Result<ContextDbService<PgContextStore>> {
+    // 1. 应用迁移
+    let mut migrator = uwu_database::Migrator::new();
+    for m in context_db_migrations() {
+        migrator = migrator.add(m);
+    }
+    migrator
+        .up(&db.pool)
+        .await
+        .map_err(|e| agent_context_db_core::ContextError::Storage(format!(
+            "migration failed: {e}"
+        )))?;
+
+    // 2. 构造内容层适配器
+    let content = Arc::new(PgContextStore::new(Arc::new(db.pool)));
+
+    // 3. 构造向量层适配器（无配置时回退空实现）
+    let index: Arc<dyn VectorIndex> = match db.vector {
+        Some(vs) => Arc::new(UwuVectorIndex::new(vs)),
+        None => Arc::new(NoopVectorIndex),
     };
-    use agent_context_db_core::{ContentRepo, FsOps, TenantOps, VersionOps};
 
-    #[derive(Default)]
-    struct NoopStore;
-    #[async_trait]
-    impl FsOps for NoopStore {
-        async fn ls(&self, _d: &ContextUri) -> Result<Vec<DirEntry>> { Ok(vec![]) }
-        async fn find(&self, _p: &FindPattern) -> Result<Vec<ContextUri>> { Ok(vec![]) }
-        async fn grep(&self, _r: &str, _s: &ContextUri) -> Result<Vec<GrepHit>> { Ok(vec![]) }
-        async fn tree(&self, root: &ContextUri, _d: usize) -> Result<TreeNode> {
-            Ok(TreeNode { uri: root.clone(), is_dir: true, children: vec![] })
-        }
-        async fn read(&self, _u: &ContextUri, _l: ContentLevel) -> Result<ContentPayload> {
-            Ok(ContentPayload::Abstract(String::new()))
-        }
+    Ok(ContextDbService::new(content, index))
+}
+
+/// 空实现：无向量后端时静默返回空结果。
+struct NoopVectorIndex;
+
+#[async_trait]
+impl VectorIndex for NoopVectorIndex {
+    async fn upsert(&self, _collection: &str, _point: IndexPoint) -> Result<()> {
+        Ok(())
     }
-    #[async_trait]
-    impl ContentRepo for NoopStore {
-        async fn write(&self, _e: ContextEntry) -> Result<MvccVersion> { Ok(MvccVersion(1)) }
-        async fn delete(&self, _u: &ContextUri) -> Result<()> { Ok(()) }
-        async fn rename(&self, _f: &ContextUri, _t: &ContextUri) -> Result<()> { Ok(()) }
+    async fn search(
+        &self,
+        _collection: &str,
+        _query: Vec<f32>,
+        _top_k: usize,
+        _filter: Option<serde_json::Value>,
+    ) -> Result<Vec<IndexHit>> {
+        Ok(vec![])
     }
-    #[async_trait]
-    impl VersionOps for NoopStore {
-        async fn version_history(&self, _u: &ContextUri) -> Result<Vec<VersionEntry>> { Ok(vec![]) }
-        async fn rollback(&self, _u: &ContextUri, _t: MvccVersion) -> Result<()> { Ok(()) }
-        async fn diff(&self, _u: &ContextUri, _a: MvccVersion, _b: MvccVersion) -> Result<ContextDiff> {
-            Ok(ContextDiff::default())
-        }
+    async fn delete(&self, _collection: &str, _uri: &str) -> Result<()> {
+        Ok(())
     }
-    #[async_trait]
-    impl TenantOps for NoopStore {
-        async fn list_tenants(&self) -> Result<Vec<TenantId>> { Ok(vec![]) }
+}
+
+// ===========================================================================
+// PG 集成测试（service_from_uwu_db 全链路）
+// ===========================================================================
+
+#[cfg(test)]
+mod pg_tests {
+    use super::*;
+    use uwu_database::config::{
+        CacheBackend, CacheConfig, DbConfig, DeployConfig, RuntimeConfig, SqlBackend,
+        VectorBackend, VectorConfig,
+    };
+    use uwu_database::Database;
+
+    fn pg_url() -> Option<String> {
+        std::env::var("DATABASE_URL").ok()
     }
 
-    #[derive(Default)]
-    struct NoopIndex;
-    #[async_trait]
-    impl VectorIndex for NoopIndex {
-        async fn upsert(&self, _c: &str, _p: IndexPoint) -> Result<()> { Ok(()) }
-        async fn search(&self, _c: &str, _q: Vec<f32>, _k: usize, _f: Option<serde_json::Value>) -> Result<Vec<IndexHit>> { Ok(vec![]) }
-        async fn delete(&self, _c: &str, _u: &str) -> Result<()> { Ok(()) }
+    fn require_pg() -> String {
+        pg_url().expect("SKIP: DATABASE_URL not set")
+    }
+
+    fn test_cfg() -> RuntimeConfig {
+        RuntimeConfig {
+            deploy: DeployConfig::default(),
+            database: DbConfig {
+                backend: SqlBackend::Postgres,
+                url: pg_url().unwrap(),
+                max_connections: 2,
+                min_connections: 0,
+                acquire_timeout_secs: 5,
+                idle_timeout_secs: 60,
+                max_lifetime_secs: 300,
+                test_before_acquire: false,
+                statement_cache_capacity: 100,
+                application_name: Some("ctx_svc_test".into()),
+            },
+            cache: CacheConfig {
+                backend: CacheBackend::None,
+                capacity: 0,
+                url: None,
+            },
+            vector: VectorConfig {
+                backend: VectorBackend::Memory,
+                url: None,
+                api_key: None,
+            },
+        }
     }
 
     #[tokio::test]
-    async fn service_hands_out_ports() {
-        let svc = ContextDbService::new(Arc::new(NoopStore), Arc::new(NoopIndex));
-        let idx = svc.vector_index();
-        idx.upsert("c", IndexPoint { uri: "uwu://t/x".into(), vector: vec![1.0], payload: serde_json::json!({}) }).await.unwrap();
-        let fs = svc.fs_ops();
-        assert!(fs.ls(&ContextUri::parse("uwu://t/agent/a").unwrap()).await.unwrap().is_empty());
+    async fn test_service_from_uwu_db_assembles() {
+        let _url = require_pg();
+        let cfg = test_cfg();
+        let db = Database::connect(&cfg).await.unwrap();
+
+        let service = service_from_uwu_db(db).await.unwrap();
+
+        // 验证各端口可用
+        let _fs = service.fs_ops();
+        let _repo = service.content_repo();
+        let _idx = service.vector_index();
+
+        // 验证 Clone
+        let _clone = service.clone();
+    }
+
+    #[tokio::test]
+    async fn test_service_from_uwu_db_migration_idempotent() {
+        let _url = require_pg();
+        let cfg = test_cfg();
+
+        // 第一次：创建表
+        let db1 = Database::connect(&cfg).await.unwrap();
+        let svc1 = service_from_uwu_db(db1).await.unwrap();
+        drop(svc1);
+
+        // 第二次：不应报错（表已存在）
+        let db2 = Database::connect(&cfg).await.unwrap();
+        let svc2 = service_from_uwu_db(db2).await.unwrap();
+
+        // 验证 NoopVectorIndex 也可正常使用
+        let idx = svc2.vector_index();
+        idx.delete("nonexistent", "x").await.unwrap();
+        let results = idx.search("nonexistent", vec![1.0], 5, None).await.unwrap();
+        assert!(results.is_empty());
     }
 }

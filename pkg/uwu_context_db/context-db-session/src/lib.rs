@@ -9,6 +9,10 @@
 //! - 仅依赖 core 的类型与 `ContentRepo` 端口（写归档）；不依赖 parse/compressor。
 //! - `SessionCompressor` 是端口（零实现），编排由 composition root 装配。
 
+pub mod compressor;
+
+pub use compressor::{MemoryExtractorShim, SessionCompressorImpl};
+
 use agent_context_db_core::{ContextUri, MemoryClass, Result};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};

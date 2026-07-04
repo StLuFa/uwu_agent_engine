@@ -1,13 +1,12 @@
 //! # agent-context-db-compressor (L6 压缩层)
 //!
-//! 异步语义处理队列，替代 `agent-sidecar-consolidator`：把 L5 解析层的
-//! 重活（L0/L1 生成、去重、轨迹归纳、多模态转文本）从写入热路径剥离到后台 worker。
-//!
-//! ## 解耦约束
-//!
-//! - 依赖 session（`SessionHandle`）与 parse（`MemoryCandidate`）的类型，
-//!   但只组合它们的**数据形状**，不反向要求它们感知队列。
-//! - `SemanticQueue` 是端口（零实现）；具体调度（tokio / NATS）由宿主装配。
+//! 异步语义处理队列，替代 `agent-sidecar-consolidator`：
+//! - [`TokioSemanticQueue`]：基于 tokio mpsc 的实现
+//! - [`SemanticQueue`] trait：端口定义
+
+pub mod queue;
+
+pub use queue::TokioSemanticQueue;
 
 use agent_context_db_core::{ContextUri, Result};
 use agent_context_db_parse::MemoryCandidate;

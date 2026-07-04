@@ -44,20 +44,24 @@ pub struct Author {
     pub system: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CommitMeta {
+    #[serde(default)]
     pub trigger: CommitTrigger,
+    #[serde(default)]
     pub changes: ChangeSet,
+    #[serde(default)]
     pub provenance: Vec<ProvenanceLink>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub enum CommitTrigger {
+    #[default]
+    AutoConsolidation,
     SessionCommit { session_id: Uuid, compression_index: u64 },
     AgentWrite { agent_id: String, action: String },
     ForkPromotion { fork_name: String },
     Merge { branches: Vec<BranchName> },
-    AutoConsolidation,
     UserExplicit,
 }
 
