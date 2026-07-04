@@ -23,10 +23,13 @@ use std::sync::Arc;
 // State 快照
 // ===========================================================================
 
-/// State 快照（M3 骨架，真实类型来自 agent-state，在对接时替换）。
+/// State 快照：context-db 层的 State 存储包装器。
 ///
-/// 提供完整的 State 快照结构，包含元数据、版本追踪和内容哈希，
-/// 支持高效的 fork 比较和真值源重算。
+/// `payload` 字段承载 agent-state 的真实内容（不透明 JSON），
+/// 其余字段为 context-db 层元数据（版本追踪、内容哈希、fork 比较）。
+/// agent-state crate 只负责 payload 的内部结构，与本类型正交。
+///
+/// 提供完整的 State 快照结构，支持高效的 fork 比较和真值源重算。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StateSnapshot {
     pub agent_id: String,
@@ -178,9 +181,20 @@ where
                     payload,
                 ))
             }
-            Ok(ContentPayload::Detail(_)) => {
+            Ok(ContentPayload::Detail(bytes)) => {
+                // L1 返回了二进制数据，尝试 JSON 反序列化（某些存储实现将 JSON 存为 L2 Detail）
+                if let Ok(snap) = serde_json::from_slice::<StateSnapshot>(&bytes) {
+                    return Ok(snap);
+                }
+                // 再尝试作为 UTF-8 字符串解析
+                if let Ok(json_str) = String::from_utf8(bytes) {
+                    if let Ok(snap) = serde_json::from_str::<StateSnapshot>(&json_str) {
+                        return Ok(snap);
+                    }
+                }
                 Err(agent_context_db_core::ContextError::Unsupported(
-                    "unexpected Detail in L1 fallback".into(),
+                    "unexpected Detail in L1 fallback; cannot deserialize as StateSnapshot"
+                        .into(),
                 ))
             }
             Err(e) => Err(e),

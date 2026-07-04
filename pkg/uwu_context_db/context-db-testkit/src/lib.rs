@@ -24,6 +24,8 @@ use std::collections::HashMap;
 pub struct MemoryContextStore {
     // uri -> 版本序列（末尾为最新）
     entries: Mutex<HashMap<String, Vec<ContextEntry>>>,
+    // uri -> L2 原始字节（模拟 AGFS blob 存储）
+    l2_blobs: Mutex<HashMap<String, Vec<u8>>>,
 }
 
 impl MemoryContextStore {
@@ -33,6 +35,11 @@ impl MemoryContextStore {
 
     fn latest(&self, uri: &str) -> Option<ContextEntry> {
         self.entries.lock().get(uri).and_then(|v| v.last().cloned())
+    }
+
+    /// 存入 L2 原始字节（模拟 AGFS blob 写）。
+    pub fn put_l2_blob(&self, uri: &str, bytes: Vec<u8>) {
+        self.l2_blobs.lock().insert(uri.to_string(), bytes);
     }
 }
 
@@ -154,7 +161,16 @@ impl FsOps for MemoryContextStore {
         Ok(match level {
             ContentLevel::L0 => ContentPayload::Abstract(e.l0_abstract),
             ContentLevel::L1 => ContentPayload::Overview(e.l1_overview.unwrap_or_default()),
-            ContentLevel::L2 => ContentPayload::Detail(Vec::new()),
+            ContentLevel::L2 => {
+                // 优先返回显式存入的 L2 blob（模拟 AGFS）
+                if let Some(bytes) = self.l2_blobs.lock().get(&uri.0) {
+                    if !bytes.is_empty() {
+                        return Ok(ContentPayload::Detail(bytes.clone()));
+                    }
+                }
+                // 无显式 blob 时返回空 Detail，由调用方降级到 L1
+                ContentPayload::Detail(Vec::new())
+            }
         })
     }
 }

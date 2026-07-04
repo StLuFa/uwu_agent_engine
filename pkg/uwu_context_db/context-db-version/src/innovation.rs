@@ -142,12 +142,22 @@ impl<V: VersionStore> SelfHealer<V> {
             }
         }
 
-        // 检测空 commit（无实际变更的提交）
+        // 检测空 commit（无实际变更的提交）并建议清理
+        let mut empty_count = 0;
         for commit in &log {
             let changes = &commit.metadata.changes;
             if changes.adds.is_empty() && changes.updates.is_empty() && changes.deletes.is_empty() {
-                continue; // 正常
+                empty_count += 1;
             }
+        }
+        if empty_count >= 3 {
+            actions.push(RepairAction::Supplement {
+                uri: scope.clone(),
+                content: format!(
+                    "detected {} empty commits (no changes) in recent history; consider squashing",
+                    empty_count
+                ),
+            });
         }
 
         Ok(actions)
@@ -203,7 +213,10 @@ impl<V: VersionStore> DreamConsolidator<V> {
 
     /// 执行一次"梦境"巩固周期。
     ///
-    /// 在当前 scope 的最近 N 条轨迹中找相似模式，合成新经验。
+    /// 在当前 scope 的最近 N 条轨迹中找相似模式：
+    /// 1. 提取变更 URI 并按路径前缀聚类
+    /// 2. 对高频聚类，读取内容并通过 LLM 合成洞察
+    /// 3. 返回 LLM 生成的模式描述
     pub async fn consolidate(
         &self,
         scope: &ContextUri,
@@ -226,12 +239,62 @@ impl<V: VersionStore> DreamConsolidator<V> {
             clusters.entry(key).or_default().push(uri.clone());
         }
 
-        // 高频聚类 → 候选合成目标
-        let insights: Vec<String> = clusters
-            .into_iter()
-            .filter(|(_, uris)| uris.len() >= 3)
-            .map(|(key, uris)| format!("cluster '{}' with {} related changes", key, uris.len()))
-            .collect();
+        // 高频聚类 → 收集内容 → LLM 合成
+        let mut insights: Vec<String> = Vec::new();
+
+        for (key, uris) in clusters {
+            if uris.len() < 3 {
+                // 低频聚类：仅记录统计信息
+                if uris.len() >= 2 {
+                    insights.push(format!("cluster '{}' with {} related changes", key, uris.len()));
+                }
+                continue;
+            }
+
+            // 读取聚类中各条目的 L0 摘要
+            let mut summaries = Vec::new();
+            for uri in &uris {
+                if let Ok(content) = self.fs.read(uri, ContentLevel::L0).await {
+                    if let ContentPayload::Abstract(abs) = content {
+                        summaries.push(format!("- {uri}: {abs}", uri = uri, abs = abs));
+                    }
+                }
+            }
+
+            if summaries.is_empty() {
+                insights.push(format!("cluster '{}' with {} related changes (no content)", key, uris.len()));
+                continue;
+            }
+
+            // 调用 LLM 合成模式洞察
+            let nl = "\n";
+            let prompt = format!(
+                "Analyze this cluster of {count} context changes under '{key}':{nl}{nl}{summaries}{nl}{nl}\
+                 Identify the underlying pattern: what do these changes have in common? \
+                 Is there a reusable insight or principle? \
+                 Respond with a single concise paragraph (2-4 sentences).",
+                count = uris.len(),
+                key = key,
+                nl = nl,
+                summaries = summaries.join("\n"),
+            );
+
+            match self.llm.complete(&prompt, &LlmOpts::default()).await {
+                Ok(response) => {
+                    let trimmed = response.trim().to_string();
+                    if !trimmed.is_empty() {
+                        insights.push(format!("cluster '{key}' ({count} changes): {trimmed}",
+                            key = key, count = uris.len(), trimmed = trimmed));
+                    } else {
+                        insights.push(format!("cluster '{}' with {} related changes", key, uris.len()));
+                    }
+                }
+                Err(_) => {
+                    // LLM 失败时降级为统计描述
+                    insights.push(format!("cluster '{}' with {} related changes", key, uris.len()));
+                }
+            }
+        }
 
         Ok(insights)
     }
@@ -336,23 +399,35 @@ fn parse_repair_actions(response: &str, scope: &ContextUri) -> Vec<RepairAction>
     let raw: Vec<RawAction> = serde_json::from_str(&json_str).unwrap_or_default();
 
     raw.into_iter()
-        .map(|r| match r.action.as_str() {
-            "rollback" => RepairAction::Rollback(CommitId::new()),
-            "patch" => RepairAction::Patch {
-                from: CommitId::new(),
-                description: r.description,
-            },
-            "supplement" => RepairAction::Supplement {
-                uri: scope.join(&r.target),
-                content: r.description,
-            },
-            "remove" => RepairAction::Remove(scope.join(&r.target)),
-            _ => RepairAction::Supplement {
-                uri: scope.clone(),
-                content: format!("unknown action: {}", r.description),
-            },
+        .map(|r| {
+            let target_id = parse_commit_id(&r.target);
+            match r.action.as_str() {
+                "rollback" => RepairAction::Rollback(target_id),
+                "patch" => RepairAction::Patch {
+                    from: target_id,
+                    description: r.description,
+                },
+                "supplement" => RepairAction::Supplement {
+                    uri: scope.join(&r.target),
+                    content: r.description,
+                },
+                "remove" => RepairAction::Remove(scope.join(&r.target)),
+                _ => RepairAction::Supplement {
+                    uri: scope.clone(),
+                    content: format!("unknown action {}: {}", r.action, r.description),
+                },
+            }
         })
         .collect()
+}
+
+/// 尝试从 LLM 返回的 target 字符串解析 CommitId。
+fn parse_commit_id(target: &str) -> CommitId {
+    if let Ok(uuid) = uuid::Uuid::parse_str(target) {
+        CommitId(uuid)
+    } else {
+        CommitId::new()
+    }
 }
 
 /// 从 LLM 响应中提取 JSON 数组。

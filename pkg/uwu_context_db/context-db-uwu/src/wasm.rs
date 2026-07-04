@@ -54,18 +54,43 @@ pub enum WasmDerivation {
 // WASM 沙箱执行器
 // ═══════════════════════════════════════════════════════════════════════════
 
+/// WASM 模块执行器 trait —— 由 `uwu_wasm` crate 实现，注入到 `WasmSandbox`。
+///
+/// 与 `WasmSandbox` 解耦：未注入时自动降级为 LLM 模拟执行。
+#[async_trait::async_trait]
+pub trait WasmEngine: Send + Sync {
+    /// 执行一个 WASM 模块，传入 JSON 输入，返回 JSON 输出。
+    async fn execute_module(
+        &self,
+        module_name: &str,
+        input_json: &str,
+    ) -> std::result::Result<String, String>;
+}
+
 /// WASM 沙箱 —— 在上下文数据上执行衍生计算。
 ///
-/// 当前实现：纯 Rust 计算（不依赖实际 WASM 运行时）。
-/// 生产对接：替换内部实现为 `uwu_wasm` 的 WASM 引擎，接口不变。
+/// 执行优先级：
+/// 1. 如果注入了 `WasmEngine`（生产环境 `uwu_wasm`），用真实 WASM 运行时执行
+/// 2. 否则降级为 LLM 模拟执行（开发/测试环境）
 pub struct WasmSandbox {
     fs: Arc<dyn FsOps>,
     llm: Arc<dyn LlmClient>,
+    wasm_engine: Option<Arc<dyn WasmEngine>>,
 }
 
 impl WasmSandbox {
+    /// 无 WASM 引擎的构造器（LLM 降级模式）。
     pub fn new(fs: Arc<dyn FsOps>, llm: Arc<dyn LlmClient>) -> Self {
-        Self { fs, llm }
+        Self { fs, llm, wasm_engine: None }
+    }
+
+    /// 带 WASM 引擎的构造器（生产模式，优先真实 WASM 执行）。
+    pub fn with_engine(
+        fs: Arc<dyn FsOps>,
+        llm: Arc<dyn LlmClient>,
+        engine: Arc<dyn WasmEngine>,
+    ) -> Self {
+        Self { fs, llm, wasm_engine: Some(engine) }
     }
 
     /// 在指定 scope 上执行计算。
@@ -199,15 +224,14 @@ impl WasmSandbox {
 
     /// 自定义 WASM 模块执行。
     ///
-    /// 执行策略：
-    /// 1. 尝试从嵌入的 WASM 模块注册表中加载并执行（如果配置了运行时）
-    /// 2. Fallback：使用 LLM 模拟 WASM 计算语义（适用于纯逻辑/文本处理模块）
+    /// 执行策略（按优先级）：
+    /// 1. 如果注入了 `WasmEngine`，用真实 WASM 运行时执行模块
+    /// 2. Fallback：LLM 模拟 WASM 计算语义
     async fn run_custom(
         &self,
         scope: &ContextUri,
         module_name: &str,
     ) -> std::result::Result<WasmComputeOutput, agent_context_db_core::ContextError> {
-        // 收集 scope 下的条目内容
         let entries = self.collect_entries(scope).await?;
 
         if entries.is_empty() {
@@ -226,7 +250,46 @@ impl WasmSandbox {
             });
         }
 
-        // 构建条目的文本表示
+        // 构建输入 JSON 供 WASM 引擎使用
+        let input = WasmComputeInput {
+            entries,
+            params: serde_json::json!({"module": module_name, "scope": scope.to_string()}),
+        };
+        let input_json = serde_json::to_string(&input).unwrap_or_default();
+
+        // 1. 尝试真实 WASM 引擎执行
+        if let Some(engine) = &self.wasm_engine {
+            match engine.execute_module(module_name, &input_json).await {
+                Ok(output_json) => {
+                    if let Ok(output) = serde_json::from_str::<WasmComputeOutput>(&output_json) {
+                        return Ok(output);
+                    }
+                    // WASM 引擎返回了非标准格式，包装为结果
+                    return Ok(WasmComputeOutput {
+                        result: output_json,
+                        stats: None,
+                        trigger_action: None,
+                    });
+                }
+                Err(e) => {
+                    // WASM 引擎执行失败，记录并降级到 LLM
+                    let _ = e; // 生产环境应记录日志
+                }
+            }
+        }
+
+        // 2. Fallback: LLM 模拟执行
+        self.run_custom_llm_fallback(scope, module_name, &input).await
+    }
+
+    /// LLM 降级：模拟 WASM 模块的计算语义。
+    async fn run_custom_llm_fallback(
+        &self,
+        scope: &ContextUri,
+        module_name: &str,
+        input: &WasmComputeInput,
+    ) -> std::result::Result<WasmComputeOutput, agent_context_db_core::ContextError> {
+        let entries = &input.entries;
         let entries_text: Vec<String> = entries
             .iter()
             .enumerate()
@@ -243,7 +306,6 @@ impl WasmSandbox {
         let nl = char::from(10_u8).to_string();
         let joined = entries_text.join(&nl);
 
-        // 使用 LLM 执行自定义模块的计算语义
         let prompt = format!(
             r#"You are executing a custom WASM compute module named "{module_name}".
 
@@ -252,25 +314,11 @@ The module operates on the following {n} context entries from scope {scope}:
 {joined}
 
 Execute the module's computation and return:
-1. The computation result (text description)
-2. Whether any follow-up action should be triggered
-3. Key statistics about the computation
-
 Return a JSON object:
-{{
-  "result": "<computation output>",
-  "trigger_action": "<action name or null>",
-  "entry_count": <number>,
-  "total_tokens": <number>,
-  "unique_classes": <number>,
-  "average_confidence": <0.0-1.0>
-}}
+{{"result": "<output>", "trigger_action": "<action or null>",
+  "entry_count": <n>, "total_tokens": <n>, "unique_classes": <n>, "average_confidence": <f>}}
 
-If you don't recognize the module "{module_name}", perform a reasonable default analysis:
-- Compute basic statistics on the entries
-- Identify any patterns or anomalies
-- Suggest relevant follow-up actions (compact, regenerate_overview, merge_duplicates, etc.)
-
+Perform a reasonable analysis: compute statistics, identify patterns, suggest follow-up actions.
 Respond with ONLY the JSON object.
 "#,
             module_name = module_name,
@@ -279,30 +327,19 @@ Respond with ONLY the JSON object.
             joined = joined
         );
 
-        let response = self
-            .llm
-            .complete(&prompt, &LlmOpts::default())
-            .await
-            .map_err(|e| {
-                agent_context_db_core::ContextError::Storage(format!(
-                    "custom module '{module_name}' llm: {e}"
-                ))
-            })?;
+        let response = self.llm.complete(&prompt, &LlmOpts::default()).await
+            .map_err(|e| agent_context_db_core::ContextError::Storage(
+                format!("custom module '{module_name}' llm: {e}")
+            ))?;
 
-        // 解析 LLM 响应
         #[derive(serde::Deserialize)]
         struct CustomResult {
             result: String,
-            #[serde(default)]
-            trigger_action: Option<String>,
-            #[serde(default)]
-            entry_count: usize,
-            #[serde(default)]
-            total_tokens: usize,
-            #[serde(default)]
-            unique_classes: usize,
-            #[serde(default)]
-            average_confidence: f32,
+            #[serde(default)] trigger_action: Option<String>,
+            #[serde(default)] entry_count: usize,
+            #[serde(default)] total_tokens: usize,
+            #[serde(default)] unique_classes: usize,
+            #[serde(default)] average_confidence: f32,
         }
 
         let json_str = extract_json_object(&response);
@@ -317,27 +354,21 @@ Respond with ONLY the JSON object.
                 }),
                 trigger_action: cr.trigger_action,
             }),
-            Err(_) => {
-                // Fallback：直接使用 LLM 响应作为结果
-                Ok(WasmComputeOutput {
-                    result: response.trim().to_string(),
-                    stats: Some(ComputeStats {
-                        entry_count: entries.len(),
-                        total_tokens: entries.iter().map(|e| e.l0_abstract.len() / 4).sum(),
-                        unique_classes: {
-                            let mut classes: Vec<_> = entries
-                                .iter()
-                                .filter_map(|e| e.metadata.memory_class)
-                                .collect();
-                            classes.sort_by_key(|c| *c as u8);
-                            classes.dedup_by_key(|c| *c as u8);
-                            classes.len()
-                        },
-                        average_confidence: 0.8,
-                    }),
-                    trigger_action: None,
-                })
-            }
+            Err(_) => Ok(WasmComputeOutput {
+                result: response.trim().to_string(),
+                stats: Some(ComputeStats {
+                    entry_count: entries.len(),
+                    total_tokens: entries.iter().map(|e| e.l0_abstract.len() / 4).sum(),
+                    unique_classes: {
+                        let mut v: Vec<_> = entries.iter().filter_map(|e| e.metadata.memory_class).collect();
+                        v.sort_by_key(|c| *c as u8);
+                        v.dedup_by_key(|c| *c as u8);
+                        v.len()
+                    },
+                    average_confidence: 0.8,
+                }),
+                trigger_action: None,
+            }),
         }
     }
 }

@@ -22,12 +22,15 @@ pub mod wasm;
 
 pub use character_constraint::{CharacterConstraint, ConstraintViolation, CoreValue};
 pub use innovation::{
-    AlignmentResult, FederatedEntry, FederatedView, FederationProtocol, FederationStatus,
-    Modality, MultimodalAligner, SharingPolicy,
+    AlignmentResult, FederatedEntry, FederatedView, FederationMessage, FederationMessageType,
+    FederationProtocol, FederationStatus, FederationTransport, Modality, MultimodalAligner,
+    SharingPolicy,
 };
 pub use llm::{HttpLlmClient, MockLlmClient};
 pub use mesh_bridge::{ContextEvent, EventMeshBridge, MeshPublisher, NewRule, ReactionLearner};
 pub use metacog_bridge::{MetacogBridge, PredErrorSample, TimeWindow};
 pub use sandbox::{SafetyPolicy, SandboxVerdict, SemanticSandbox, WriteGate};
 pub use state_bridge::{ForkHandle, StateBridge, StateSnapshot};
-pub use wasm::{ComputeStats, WasmComputeInput, WasmComputeOutput, WasmDerivation, WasmSandbox};
+pub use wasm::{
+    ComputeStats, WasmComputeInput, WasmComputeOutput, WasmDerivation, WasmEngine, WasmSandbox,
+};

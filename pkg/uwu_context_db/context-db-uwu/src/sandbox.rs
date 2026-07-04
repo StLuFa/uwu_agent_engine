@@ -226,4 +226,27 @@ mod tests {
         let result = gate.gate(&entry).await;
         assert!(result.is_ok());
     }
+
+    #[tokio::test]
+    async fn write_gate_with_llm_review_passes_default() {
+        // 测试完整审查路径（关键词 + LLM 语义审查），不做 bypass
+        let cc = CharacterConstraint::with_llm(
+            vec![CoreValue {
+                name: "honesty".into(),
+                description: "Always tell the truth.".into(),
+                forbidden_terms: vec!["fabricate".into()],
+            }],
+            Arc::new(crate::MockLlmClient),
+        );
+        let sandbox = SemanticSandbox::new(Arc::new(crate::MockLlmClient));
+        // 不调用 without_llm_review()，走完整 LLM 审查路径
+        let gate = WriteGate::new(cc, sandbox);
+
+        let uri = ContextUri::parse("uwu://t/agent/a/memories/cases/c1").unwrap();
+        let entry = ContextEntry::new_text(uri, TenantId(uuid::Uuid::nil()), "we found and fixed the bug");
+
+        // MockLlmClient 对不相干的 prompt 返回默认 PASS，所以应该通过
+        let result = gate.gate(&entry).await;
+        assert!(result.is_ok(), "LLM review with MockLlmClient should pass safe content: {:?}", result.err());
+    }
 }

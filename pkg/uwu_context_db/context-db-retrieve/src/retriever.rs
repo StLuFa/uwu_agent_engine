@@ -212,7 +212,7 @@ impl HierarchicalRetrieverImpl {
 
     /// 阶段 3：目录内搜索。
     ///
-    /// 对指定目录 ls，按 tq.kind 筛选候选。
+    /// 对指定目录 ls，按 tq.kind 和 tq.expected_class 筛选候选。
     /// 返回 (uri, memory_class) 对。
     async fn intra_dir_search(
         &self,
@@ -223,9 +223,15 @@ impl HierarchicalRetrieverImpl {
         let candidates: Vec<(ContextUri, Option<MemoryClass>)> = entries
             .into_iter()
             .filter(|e| !e.is_dir) // 只取文件
+            .filter(|e| {
+                // 按 expected_class 过滤（有指定 class 时只保留匹配项）
+                match tq.expected_class {
+                    Some(expected) => e.memory_class.map_or(true, |mc| mc == expected),
+                    None => true,
+                }
+            })
             .map(|e| (e.uri, e.memory_class))
             .collect();
-        let _ = tq;
         Ok(candidates)
     }
 

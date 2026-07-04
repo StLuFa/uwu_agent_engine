@@ -29,10 +29,11 @@ pub use quality::{CompressionAwareLoader, HallucinationDetector, PressureLevel, 
 pub use retriever::HierarchicalRetrieverImpl;
 
 use agent_context_db_core::{
-    ContentLevel, ContentPayload, ContextUri, MemoryClass, Result,
+    ContentLevel, ContentPayload, ContextUri, LlmClient, LlmOpts, MemoryClass, Result,
 };
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 // ===========================================================================
 // 检索器端口
@@ -136,7 +137,7 @@ pub trait Reranker: Send + Sync {
     async fn rerank(&self, query: &str, hits: Vec<RetrievalHit>) -> Result<Vec<RetrievalHit>>;
 }
 
-/// 分数降序、按 budget 截断的朴素 reranker（骨架默认实现）。
+/// 分数降序、按 budget 截断的朴素 reranker（轻量默认实现）。
 pub struct ScoreReranker {
     pub keep: usize,
 }
@@ -151,6 +152,83 @@ impl Reranker for ScoreReranker {
         });
         hits.truncate(self.keep);
         Ok(hits)
+    }
+}
+
+/// LLM 驱动的语义重排器。
+///
+/// 对每个命中的内容调用 LLM，评估其与查询的语义相关性（0.0–1.0），
+/// 然后按语义分数降序排列。相比 `ScoreReranker` 的纯分数排序，
+/// 能捕捉到词语不匹配但语义相关的命中。
+pub struct LlmReranker {
+    llm: Arc<dyn LlmClient>,
+    /// 保留的最大命中数
+    pub keep: usize,
+}
+
+impl LlmReranker {
+    pub fn new(llm: Arc<dyn LlmClient>, keep: usize) -> Self {
+        Self { llm, keep }
+    }
+}
+
+#[async_trait]
+impl Reranker for LlmReranker {
+    async fn rerank(&self, query: &str, hits: Vec<RetrievalHit>) -> Result<Vec<RetrievalHit>> {
+        if hits.is_empty() {
+            return Ok(hits);
+        }
+
+        // 为每个 hit 调用 LLM 评估语义相关性
+        let mut rescored: Vec<(RetrievalHit, f32)> = Vec::new();
+        for hit in hits {
+            let content_text = content_preview(&hit.content, 500);
+            let prompt = format!(
+                "Query: {query}\n\nDocument: {content_text}\n\n\
+                 Rate the semantic relevance of this document to the query on a scale of 0.0 to 1.0.\n\
+                 - 1.0 = directly answers the query\n\
+                 - 0.5 = somewhat related\n\
+                 - 0.0 = completely unrelated\n\
+                 Respond with ONLY a number between 0.0 and 1.0."
+            );
+
+            let score = match self.llm.complete(&prompt, &LlmOpts {
+                max_tokens: Some(10),
+                temperature: Some(0.0),
+                ..Default::default()
+            }).await {
+                Ok(text) => text.trim().parse::<f32>().unwrap_or(hit.relevance),
+                Err(_) => hit.relevance, // LLM 失败时保留原始分数
+            };
+
+            rescored.push((hit, score));
+        }
+
+        // 按语义分数降序
+        rescored.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        rescored.truncate(self.keep);
+
+        Ok(rescored.into_iter().map(|(h, s)| {
+            RetrievalHit { relevance: s, ..h }
+        }).collect())
+    }
+}
+
+/// 提取 ContentPayload 的文本预览（最多 max_chars 字符）。
+fn content_preview(content: &ContentPayload, max_chars: usize) -> String {
+    let text = match content {
+        ContentPayload::Abstract(s) => s.clone(),
+        ContentPayload::Overview(s) => s.clone(),
+        ContentPayload::Detail(bytes) => {
+            String::from_utf8_lossy(bytes).into_owned()
+        }
+    };
+    if text.len() > max_chars {
+        format!("{}...", &text[..max_chars])
+    } else {
+        text
     }
 }
 

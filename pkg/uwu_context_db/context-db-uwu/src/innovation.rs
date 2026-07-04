@@ -37,9 +37,36 @@ pub struct FederatedView {
     pub entries: Vec<FederatedEntry>,
 }
 
+/// 联邦传输发布器 trait —— 由 `EventMeshBridge` 或其他 mesh 传输实现。
+///
+/// 使得 `FederationProtocol` 可以通过注入的传输层实现真正的跨 Agent 通信。
+#[async_trait::async_trait]
+pub trait FederationTransport: Send + Sync {
+    /// 广播一条联邦消息到所有对等节点。
+    async fn broadcast(&self, message: &FederationMessage) -> Result<(), String>;
+    /// 订阅来自其他 Agent 的联邦消息。
+    async fn subscribe(&self) -> Result<Vec<FederationMessage>, String>;
+}
+
+/// 联邦消息（线上格式）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FederationMessage {
+    pub source_agent: String,
+    pub message_type: FederationMessageType,
+    pub entries: Vec<FederatedEntry>,
+    pub timestamp: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum FederationMessageType {
+    Push,
+    Query { query: String },
+    PeerDiscovery,
+}
+
 /// 联邦协议 —— 跨 Agent 上下文交换。
 ///
-/// 支持 push（广播自己的上下文）和 pull（查询其他 Agent 的公开上下文）。
+/// 支持本地缓存（单机模式）和注入 `FederationTransport` 的网络传输（分布式模式）。
 pub struct FederationProtocol {
     /// 本地 Agent ID
     local_agent: String,
@@ -47,14 +74,31 @@ pub struct FederationProtocol {
     peers: parking_lot::Mutex<Vec<String>>,
     /// 联邦条目缓存
     cache: parking_lot::Mutex<Vec<FederatedEntry>>,
+    /// 网络传输层（None = 单机模式）
+    transport: Option<Arc<dyn FederationTransport>>,
 }
 
 impl FederationProtocol {
+    /// 单机构造器（仅本地缓存）。
     pub fn new(local_agent: impl Into<String>) -> Self {
         Self {
             local_agent: local_agent.into(),
             peers: parking_lot::Mutex::new(Vec::new()),
             cache: parking_lot::Mutex::new(Vec::new()),
+            transport: None,
+        }
+    }
+
+    /// 带网络传输的构造器（分布式模式）。
+    pub fn with_transport(
+        local_agent: impl Into<String>,
+        transport: Arc<dyn FederationTransport>,
+    ) -> Self {
+        Self {
+            local_agent: local_agent.into(),
+            peers: parking_lot::Mutex::new(Vec::new()),
+            cache: parking_lot::Mutex::new(Vec::new()),
+            transport: Some(transport),
         }
     }
 
@@ -63,13 +107,76 @@ impl FederationProtocol {
         self.peers.lock().push(agent_id.into());
     }
 
-    /// 推送一个上下文条目到联邦。
-    pub fn push(&self, entry: FederatedEntry) {
+    /// 推送一个上下文条目到联邦（本地缓存 + 可选网络广播）。
+    pub async fn push(&self, entry: FederatedEntry) -> Result<(), String> {
+        // 本地缓存
+        self.cache.lock().push(entry.clone());
+
+        // 网络广播（有传输层时）
+        if let Some(transport) = &self.transport {
+            let msg = FederationMessage {
+                source_agent: self.local_agent.clone(),
+                message_type: FederationMessageType::Push,
+                entries: vec![entry],
+                timestamp: chrono::Utc::now().timestamp(),
+            };
+            transport.broadcast(&msg).await?;
+        }
+        Ok(())
+    }
+
+    /// 同步推送（不依赖 async）。
+    pub fn push_sync(&self, entry: FederatedEntry) {
         self.cache.lock().push(entry);
     }
 
     /// 从联邦拉取与查询相关的公开条目。
-    pub fn pull(&self, query: &str) -> Vec<FederatedEntry> {
+    pub async fn pull(&self, query: &str) -> Vec<FederatedEntry> {
+        // 本地缓存
+        let local: Vec<FederatedEntry> = self
+            .cache
+            .lock()
+            .iter()
+            .filter(|e| {
+                matches!(e.sharing_policy, SharingPolicy::Public | SharingPolicy::Anonymous)
+                    && e.abstract_.to_lowercase().contains(&query.to_lowercase())
+            })
+            .cloned()
+            .collect();
+
+        // 网络拉取（有传输层时）
+        if let Some(transport) = &self.transport {
+            let query_msg = FederationMessage {
+                source_agent: self.local_agent.clone(),
+                message_type: FederationMessageType::Query {
+                    query: query.to_string(),
+                },
+                entries: vec![],
+                timestamp: chrono::Utc::now().timestamp(),
+            };
+            let _ = transport.broadcast(&query_msg).await;
+
+            // 收集远程响应
+            if let Ok(remote_msgs) = transport.subscribe().await {
+                let mut remote: Vec<FederatedEntry> = remote_msgs
+                    .into_iter()
+                    .flat_map(|m| m.entries)
+                    .filter(|e| {
+                        matches!(e.sharing_policy, SharingPolicy::Public | SharingPolicy::Anonymous)
+                            && e.abstract_.to_lowercase().contains(&query.to_lowercase())
+                    })
+                    .collect();
+                let mut all = local;
+                all.append(&mut remote);
+                return all;
+            }
+        }
+
+        local
+    }
+
+    /// 同步拉取（仅本地缓存）。
+    pub fn pull_sync(&self, query: &str) -> Vec<FederatedEntry> {
         self.cache
             .lock()
             .iter()
@@ -81,13 +188,50 @@ impl FederationProtocol {
             .collect()
     }
 
+    /// 序列化联邦状态为 JSON（用于持久化/快照）。
+    pub fn serialize_state(&self) -> String {
+        let cache = self.cache.lock();
+        let peers = self.peers.lock();
+        serde_json::json!({
+            "local_agent": self.local_agent,
+            "peers": *peers,
+            "entries": *cache,
+        })
+        .to_string()
+    }
+
+    /// 从 JSON 恢复联邦状态。
+    pub fn deserialize_state(&self, json: &str) -> Result<(), String> {
+        let state: serde_json::Value =
+            serde_json::from_str(json).map_err(|e| format!("deserialize: {e}"))?;
+        if let Some(peers_arr) = state["peers"].as_array() {
+            let mut peers = self.peers.lock();
+            peers.clear();
+            for p in peers_arr {
+                if let Some(s) = p.as_str() {
+                    peers.push(s.to_string());
+                }
+            }
+        }
+        if let Some(entries_arr) = state["entries"].as_array() {
+            let entries: Vec<FederatedEntry> =
+                serde_json::from_value(serde_json::Value::Array(entries_arr.clone()))
+                    .unwrap_or_default();
+            *self.cache.lock() = entries;
+        }
+        Ok(())
+    }
+
     /// 获取联邦状态摘要。
     pub fn status(&self) -> FederationStatus {
         let cache = self.cache.lock();
         FederationStatus {
             peer_count: self.peers.lock().len(),
             shared_entries: cache.len(),
-            public_entries: cache.iter().filter(|e| matches!(e.sharing_policy, SharingPolicy::Public)).count(),
+            public_entries: cache
+                .iter()
+                .filter(|e| matches!(e.sharing_policy, SharingPolicy::Public))
+                .count(),
         }
     }
 }
@@ -206,7 +350,7 @@ mod tests {
         let fed = FederationProtocol::new("agent_a");
         fed.register_peer("agent_b");
 
-        fed.push(FederatedEntry {
+        fed.push_sync(FederatedEntry {
             source_agent: "agent_a".into(),
             uri: ContextUri::parse("uwu://t/agent/a/memories/cases/c1").unwrap(),
             abstract_: "solved memory leak in websocket handler".into(),
@@ -214,7 +358,7 @@ mod tests {
             timestamp: 1_700_000_000,
         });
 
-        let results = fed.pull("memory leak");
+        let results = fed.pull_sync("memory leak");
         assert_eq!(results.len(), 1);
 
         let status = fed.status();
@@ -225,7 +369,7 @@ mod tests {
     #[test]
     fn federation_private_entries_not_pulled() {
         let fed = FederationProtocol::new("agent_a");
-        fed.push(FederatedEntry {
+        fed.push_sync(FederatedEntry {
             source_agent: "agent_a".into(),
             uri: ContextUri::parse("uwu://t/agent/a/memories/preferences/p1").unwrap(),
             abstract_: "prefers secret configs".into(),
@@ -233,7 +377,7 @@ mod tests {
             timestamp: 1_700_000_000,
         });
 
-        assert!(fed.pull("secret").is_empty());
+        assert!(fed.pull_sync("secret").is_empty());
     }
 
     #[test]
@@ -246,9 +390,9 @@ mod tests {
             sharing_policy: SharingPolicy::TrustedPeers { allowed_agents: vec!["agent_b".into()] },
             timestamp: 1_700_000_000,
         };
-        fed.push(entry);
+        fed.push_sync(entry);
 
         // TrustedPeers 不在 Public/Anonymous → pull 不应返回
-        assert!(fed.pull("trusted").is_empty());
+        assert!(fed.pull_sync("trusted").is_empty());
     }
 }
