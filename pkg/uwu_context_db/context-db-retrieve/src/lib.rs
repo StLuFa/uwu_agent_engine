@@ -15,11 +15,16 @@
 
 pub mod innovation;
 pub mod intent;
+pub mod perf;
 pub mod quality;
 pub mod retriever;
 
 pub use innovation::{IncrementalRetrievalLearner, PredictivePrefetcher, RelevanceFeedback};
 pub use intent::{LlmIntentAnalyzer, RuleBasedIntentAnalyzer};
+pub use perf::{
+    BatchFsRequest, CacheTier, MaterializedView, ParallelGenerator, PartitionedRetriever,
+    QueryCompiler, TieredVectorIndex, VectorQuantizer,
+};
 pub use quality::{CompressionAwareLoader, HallucinationDetector, PressureLevel, QualityReport};
 pub use retriever::HierarchicalRetrieverImpl;
 

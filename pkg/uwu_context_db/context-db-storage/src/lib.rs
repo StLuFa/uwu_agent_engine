@@ -12,6 +12,7 @@
 //! - PG 适配器通过 `uwu_database` 基础库注入连接池与向量后端，不自行管理连接。
 
 pub mod migrations;
+pub mod perf;
 pub mod pg;
 pub mod vector_index;
 
@@ -19,6 +20,7 @@ pub mod vector_index;
 pub use agent_context_db_core::{IndexHit, IndexPoint, VectorIndex};
 
 pub use migrations::context_db_migrations;
+pub use perf::{BatchWriteBuffer, DedupStore, WalEntry, WriteAheadLogger, compress, content_hash, decompress};
 pub use pg::PgContextStore;
 pub use vector_index::UwuVectorIndex;
 

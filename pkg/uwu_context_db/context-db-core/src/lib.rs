@@ -26,6 +26,7 @@ pub mod similarity;
 pub mod store;
 pub mod uri;
 pub mod vector;
+pub mod zerocopy;
 
 pub use error::{ContextError, Result};
 pub use event::{
