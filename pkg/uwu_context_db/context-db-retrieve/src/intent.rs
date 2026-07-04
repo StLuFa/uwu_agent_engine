@@ -7,7 +7,7 @@ use agent_context_db_core::{
     ContextUri, LlmClient, LlmOpts, MemoryClass, Result,
 };
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::sync::Arc;
 
 use crate::{IntentAnalyzer, QueryKind, RetrieveContext, TypedQuery};

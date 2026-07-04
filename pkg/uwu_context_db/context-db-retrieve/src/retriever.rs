@@ -11,7 +11,7 @@
 //! 检索层不依赖任何具体后端（PG/Qdrant），可用 MemoryContextStore 完整单测。
 
 use agent_context_db_core::{
-    ContentLevel, ContentPayload, ContextUri, FsOps, MemoryClass, Result, VectorIndex,
+    ContentLevel, ContentPayload, ContextUri, FsOps, LlmClient, MemoryClass, Result, VectorIndex,
 };
 use async_trait::async_trait;
 use std::sync::Arc;
@@ -39,6 +39,7 @@ const DEFAULT_BUDGET: usize = 8000;
 pub struct HierarchicalRetrieverImpl {
     fs: Arc<dyn FsOps>,
     index: Option<Arc<dyn VectorIndex>>,
+    llm: Option<Arc<dyn LlmClient>>,
     intent: Arc<dyn IntentAnalyzer>,
     reranker: Arc<dyn Reranker>,
 }
@@ -50,12 +51,7 @@ impl HierarchicalRetrieverImpl {
         intent: Arc<dyn IntentAnalyzer>,
         reranker: Arc<dyn Reranker>,
     ) -> Self {
-        Self {
-            fs,
-            index: None,
-            intent,
-            reranker,
-        }
+        Self { fs, index: None, llm: None, intent, reranker }
     }
 
     /// 带向量索引的构造器。
@@ -65,12 +61,18 @@ impl HierarchicalRetrieverImpl {
         intent: Arc<dyn IntentAnalyzer>,
         reranker: Arc<dyn Reranker>,
     ) -> Self {
-        Self {
-            fs,
-            index: Some(index),
-            intent,
-            reranker,
-        }
+        Self { fs, index: Some(index), llm: None, intent, reranker }
+    }
+
+    /// 带向量索引 + LLM embedding 的构造器（完整向量召回链路）。
+    pub fn with_full_vector(
+        fs: Arc<dyn FsOps>,
+        index: Arc<dyn VectorIndex>,
+        llm: Arc<dyn LlmClient>,
+        intent: Arc<dyn IntentAnalyzer>,
+        reranker: Arc<dyn Reranker>,
+    ) -> Self {
+        Self { fs, index: Some(index), llm: Some(llm), intent, reranker }
     }
 }
 
@@ -169,24 +171,33 @@ impl HierarchicalRetrieverImpl {
         tq: &TypedQuery,
         _ctx: &RetrieveContext,
     ) -> Result<Vec<(ContextUri, f32)>> {
-        match &self.index {
-            Some(idx) => {
-                // 向量索引可用时尝试 embedding 搜索；当前无 LLM embed 能力，退回 target_dirs
-                let _ = idx;
-                Ok(tq
-                    .target_dirs
-                    .iter()
-                    .cloned()
-                    .map(|d| (d, 0.5))
-                    .collect())
+        // 向量检索：有 index + llm 时用 embedding 搜索
+        if let (Some(index), Some(llm)) = (&self.index, &self.llm) {
+            match llm.embed(&tq.text).await {
+                Ok(vec) => {
+                    let filter = tq.expected_class.map(|c| {
+                        serde_json::json!({"memory_class": memory_class_str(c)})
+                    });
+                    match index.search("memories", vec, 5, filter).await {
+                        Ok(hits) if !hits.is_empty() => {
+                            return Ok(hits
+                                .into_iter()
+                                .map(|h| {
+                                    (ContextUri::parse(h.uri).unwrap_or_else(|_| ContextUri("".into())), h.score)
+                                })
+                                .filter(|(u, _)| !u.0.is_empty())
+                                .collect());
+                        }
+                        _ => {} // fall through to target_dirs
+                    }
+                }
+                Err(_) => {} // embed failed, fall through
             }
-            None => Ok(tq
-                .target_dirs
-                .iter()
-                .cloned()
-                .map(|d| (d, 0.8))
-                .collect()),
         }
+
+        // Fallback：target_dirs（无向量或向量搜索失败）
+        let score = if self.index.is_some() { 0.5 } else { 0.8 };
+        Ok(tq.target_dirs.iter().cloned().map(|d| (d, score)).collect())
     }
 
     /// 阶段 3：目录内搜索。
@@ -329,6 +340,19 @@ fn initial_relevance(tq: &TypedQuery) -> f32 {
         QueryKind::PatternMatch => 0.75,
         QueryKind::StateSnapshot => 0.7,
         QueryKind::PersonaRelation => 0.8,
+    }
+}
+
+fn memory_class_str(c: MemoryClass) -> &'static str {
+    match c {
+        MemoryClass::Profile => "profile",
+        MemoryClass::Preferences => "preferences",
+        MemoryClass::Entities => "entities",
+        MemoryClass::Events => "events",
+        MemoryClass::Cases => "cases",
+        MemoryClass::Patterns => "patterns",
+        MemoryClass::Tools => "tools",
+        MemoryClass::Skills => "skills",
     }
 }
 
