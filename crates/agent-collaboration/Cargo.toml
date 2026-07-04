@@ -6,7 +6,7 @@ description = "多 Agent 协作 —— 委派/协商 + AgentRegistry"
 
 [dependencies]
 agent-types-core = { path = "../agent-types-core" }
-uwu-crdt = { path = "../../pkg/uwu_crdt" }
+uwu-crdt = { git = "https://github.com/StLuFa/uwu-crdt.git" }
 agent-wiki = { path = "../agent-wiki" }
 serde = { version = "1", features = ["derive"] }
 chrono = { version = "0.4", features = ["serde"] }

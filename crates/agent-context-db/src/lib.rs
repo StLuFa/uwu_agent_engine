@@ -1,4 +1,4 @@
-//! # agent-context-db-uwu (M3 专有扩展)
+//! # agent-context-db (M3 专有扩展)
 //!
 //! 通用核心（L1-L7）之上叠加 uwu 五维深度耦合：
 //!

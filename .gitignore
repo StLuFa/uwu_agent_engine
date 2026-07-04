@@ -2,3 +2,9 @@
 target
 .idea
 .vscode
+pkg/uwu_database/
+pkg/uwu_visual_script/
+pkg/uwu_event_mesh/
+pkg/uwu_crdt/
+pkg/uwu_nats_bridge/
+pkg/uwu_wasm/

@@ -2,12 +2,7 @@
 members = [
     ".",
     # 基础设施（已完成）
-    "pkg/uwu_database",
-    "pkg/uwu_event_mesh",
-    "pkg/uwu_nats_bridge",
     "pkg/uwu_logger",
-    "pkg/uwu_visual_script",
-    "pkg/uwu_wasm",
     # Agent 核心类型
     "crates/agent-types-core",
     "crates/agent-types-ext",
@@ -26,7 +21,6 @@ members = [
     "crates/agent-execution",
     # 协作与安全
     "crates/agent-uncertainty",
-    "pkg/uwu_crdt",
     "crates/agent-tools",
     "crates/agent-guard",
     "crates/agent-learning",
@@ -57,7 +51,7 @@ members = [
     "pkg/uwu_context_db/context-db-wiki",
     "pkg/uwu_context_db/context-db-retrieve",
     "pkg/uwu_context_db/context-db-version",
-    "pkg/uwu_context_db/context-db-uwu",
+    "crates/agent-context-db",
     "pkg/uwu_context_db/context-db-testkit",
 ]
 resolver = "3"

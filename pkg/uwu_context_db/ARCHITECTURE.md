@@ -16,7 +16,7 @@
 | `context-db-core` | URI + 三层模型 + 窄端口（FsOps/ContentRepo/VersionOps/TenantOps）+ LlmClient/VectorIndex/生命周期/ACL/Pack/订阅/血缘/模板/事件流/去重聚类 |
 | `context-db-retrieve` | 分层检索 + 意图分析(Rule/LLM) + 幻觉检测 + 压缩感知加载 + 预测性预加载 + 增量检索学习 |
 | `context-db-version` | DAG 版本管理 + CRDT 合并 + 语义差异推理 + 时态推理 + 知识晶体 + 自修复 + 梦境巩固 + 因果推断 |
-| `context-db-uwu` | StateBridge + MetacogBridge + CharacterConstraint + 安全沙箱 + 联邦协议 + 多模态对齐 + Reaction 学习 + EventMesh 桥接 + WASM 沙箱 + HttpLlmClient |
+| `agent-context-db` | StateBridge + MetacogBridge + CharacterConstraint + 安全沙箱 + 联邦协议 + 多模态对齐 + Reaction 学习 + EventMesh 桥接 + WASM 沙箱 + HttpLlmClient |
 | `context-db-session` | 两阶段 commit 会话压缩 |
 | `context-db-parse` | SemanticProcessor + MemoryExtractor(8类) + TrajectoryExtractor(两层归纳) |
 | `context-db-compressor` | tokio mpsc 异步语义处理队列 |

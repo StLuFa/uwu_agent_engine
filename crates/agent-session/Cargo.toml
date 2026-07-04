@@ -20,7 +20,7 @@ agent-core = { path = "../agent-core" }
 agent-task = { path = "../agent-task" }
 agent-collaboration = { path = "../agent-collaboration" }
 agent-wiki = { path = "../agent-wiki" }
-uwu_event_mesh = { path = "../../pkg/uwu_event_mesh" }
+uwu_event_mesh = { git = "https://github.com/StLuFa/uwu_event_mesh.git" }
 async-trait = "0.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

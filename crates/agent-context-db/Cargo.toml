@@ -1,13 +1,13 @@
 [package]
-name = "agent-context-db-uwu"
+name = "agent-context-db"
 version = "0.1.0"
 edition = "2024"
 description = "agent-context-db M3 专有扩展：五维 bridge + Guard 写约束 + State fork 推演（依赖 core/retrieve/version）"
 
 [dependencies]
-agent-context-db-core = { path = "../context-db-core" }
-agent-context-db-retrieve = { path = "../context-db-retrieve" }
-agent-context-db-version = { path = "../context-db-version" }
+agent-context-db-core = { path = "../../pkg/uwu_context_db/context-db-core" }
+agent-context-db-retrieve = { path = "../../pkg/uwu_context_db/context-db-retrieve" }
+agent-context-db-version = { path = "../../pkg/uwu_context_db/context-db-version" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 async-trait = "0.1"
@@ -21,10 +21,10 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 default = []
 
 [dev-dependencies]
-agent-context-db-testkit = { path = "../context-db-testkit" }
-agent-context-db-version = { path = "../context-db-version" }
-agent-context-db-parse = { path = "../context-db-parse" }
-agent-context-db-session = { path = "../context-db-session" }
+agent-context-db-testkit = { path = "../../pkg/uwu_context_db/context-db-testkit" }
+agent-context-db-version = { path = "../../pkg/uwu_context_db/context-db-version" }
+agent-context-db-parse = { path = "../../pkg/uwu_context_db/context-db-parse" }
+agent-context-db-session = { path = "../../pkg/uwu_context_db/context-db-session" }
 tokio = { version = "1", features = ["rt", "macros"] }
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4" }

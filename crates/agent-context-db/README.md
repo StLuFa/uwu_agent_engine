@@ -1,4 +1,4 @@
-# agent-context-db-uwu
+# agent-context-db
 
 通用核心之上叠加 uwu 五维深度耦合 + LlmClient 实现 + 创新功能。
 
