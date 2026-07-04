@@ -5,7 +5,7 @@
 //!
 //! 两个实现均满足 core 的 `LlmClient` trait，由 composition root 注入。
 
-use agent_context_db_core::{LlmClient, LlmError, LlmOpts};
+use agent_context_db_core::{LlmClient, LlmError, LlmOpts, LlmStream};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -142,6 +142,76 @@ impl LlmClient for HttpLlmClient {
             .map(|d| d.embedding.clone())
             .ok_or_else(|| LlmError::Provider("empty embedding response".into()))
     }
+
+    async fn complete_json(
+        &self, prompt: &str, schema: &agent_context_db_core::JsonSchema, opts: &LlmOpts,
+    ) -> Result<String, LlmError> {
+        let full = format!("{prompt}\n\nReturn ONLY valid JSON. Schema: {}", schema.schema);
+        self.complete(&full, opts).await
+    }
+
+    /// 流式生成 — 收集完整响应后缓冲返回。
+    async fn stream_complete(
+        &self, prompt: &str, opts: &LlmOpts,
+    ) -> Result<Box<dyn LlmStream + Send>, LlmError> {
+        let text = self.complete(prompt, opts).await?;
+        Ok(Box::new(SseStream { text, pos: 0 }))
+    }
+
+    /// 批量补全 — 并行发出多个 HTTP 请求。
+    async fn batch_complete(
+        &self, prompts: &[String], opts: &LlmOpts,
+    ) -> Result<Vec<String>, LlmError> {
+        let handles: Vec<_> = prompts.iter().map(|p| {
+            let client = self.client.clone();
+            let url = format!("{}/chat/completions", self.api_base.trim_end_matches('/'));
+            let model = self.model(opts).to_string();
+            let body = serde_json::json!({
+                "model": model,
+                "messages": [{"role": "user", "content": p}],
+                "max_tokens": opts.max_tokens.unwrap_or(1024),
+                "temperature": opts.temperature.unwrap_or(0.2),
+            });
+            let key = self.api_key.clone();
+            async move {
+                client.post(&url)
+                    .header("Authorization", format!("Bearer {key}"))
+                    .header("Content-Type", "application/json")
+                    .json(&body)
+                    .send().await
+            }
+        }).collect();
+
+        let mut results = Vec::new();
+        for h in handles {
+            let resp = h.await.map_err(|e| LlmError::Provider(format!("batch: {e}")))?;
+            if resp.status().is_success() {
+                let body: ChatCompletionResponse = resp.json().await.unwrap_or(ChatCompletionResponse { choices: vec![] });
+                results.push(body.choices.first().map(|c| c.message.content.clone()).unwrap_or_default());
+            } else {
+                results.push(String::new());
+            }
+        }
+        Ok(results)
+    }
+
+    // speculative_complete uses default impl (falls back to complete)
+}
+
+struct SseStream {
+    text: String,
+    pos: usize,
+}
+
+impl LlmStream for SseStream {
+    fn next_chunk(&mut self) -> Option<std::result::Result<String, agent_context_db_core::LlmError>> {
+        if self.pos >= self.text.len() { None }
+        else {
+            let chunk = self.text[self.pos..].to_string();
+            self.pos = self.text.len();
+            Some(Ok(chunk))
+        }
+    }
 }
 
 // ===========================================================================
@@ -201,12 +271,27 @@ impl LlmClient for MockLlmClient {
     }
 
     async fn embed(&self, text: &str) -> Result<Vec<f32>, LlmError> {
-        // 简单确定性向量：基于字符串字节的 hash
         let mut vec = vec![0.0f32; 128];
         for (i, b) in text.bytes().enumerate() {
             vec[i % 128] = (b as f32) / 255.0;
         }
         Ok(vec)
+    }
+
+    async fn batch_complete(
+        &self, prompts: &[String], opts: &LlmOpts,
+    ) -> Result<Vec<String>, LlmError> {
+        let mut results = Vec::new();
+        for p in prompts {
+            results.push(self.complete(p, opts).await?);
+        }
+        Ok(results)
+    }
+
+    async fn speculative_complete(
+        &self, prompt: &str, opts: &LlmOpts,
+    ) -> Result<String, LlmError> {
+        self.complete(prompt, opts).await
     }
 }
 

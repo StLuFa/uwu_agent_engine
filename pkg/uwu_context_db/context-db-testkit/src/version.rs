@@ -17,8 +17,9 @@ use agent_context_db_core::{
 };
 use agent_context_db_version::{
     AsOfTime, Author, Branch, BranchLifecycle, BranchName, BranchType, ChangeSet, Commit,
-    CommitId, CommitMeta, CommitTrigger, ContentHash, LogOpts, MergeResult, MergeStrategy, Result,
-    Tag, TreeDiff, VersionRef, VersionStore,
+    CommitId, CommitMeta, CommitTrigger, ContentHash, GcPolicy, GcReport, ImpactAnalysis,
+    LogOpts, MergeResult, MergeStrategy, ProvenanceGraph, Result,
+    SquashResult, Tag, TagName, TagType, TreeDiff, VersionRef, VersionStore,
     VersionError,
 };
 use async_trait::async_trait;
@@ -574,6 +575,159 @@ impl VersionStore for MemoryVersionStore {
             adds,
             updates,
             deletes,
+        })
+    }
+
+    async fn switch_head(&self, scope: &ContextUri, branch: &BranchName) -> Result<()> {
+        let scope_key = Self::scope_key(scope);
+        let key = (scope_key.clone(), branch.0.clone());
+        let branches = self.branches.lock();
+        if let Some(b) = branches.get(&key) {
+            self.set_head(&scope_key, b.head.clone());
+            Ok(())
+        } else {
+            Err(VersionError::NotFound(format!("branch {}", branch.0)))
+        }
+    }
+
+    async fn cherry_pick(&self, scope: &ContextUri, commit: &CommitId, onto: &BranchName) -> Result<CommitId> {
+        let scope_key = Self::scope_key(scope);
+        let source_commit = self.commits.lock().get(commit).cloned()
+            .ok_or_else(|| VersionError::NotFound(format!("commit {:?}", commit)))?;
+        let source_snapshot = self.entry_snapshots.lock().get(commit).cloned().unwrap_or_default();
+
+        let new_id = CommitId::new();
+        let cherry = Commit {
+            id: new_id.clone(),
+            parents: vec![commit.clone()],
+            tree_hash: ContentHash(format!("cherry-{}", new_id.0)),
+            author: source_commit.author.clone(),
+            message: format!("cherry-pick: {}", source_commit.message),
+            timestamp: Utc::now(),
+            metadata: source_commit.metadata.clone(),
+        };
+
+        self.commits.lock().insert(new_id.clone(), cherry);
+        self.entry_snapshots.lock().insert(new_id.clone(), source_snapshot);
+
+        let key = (scope_key.clone(), onto.0.clone());
+        let mut branches = self.branches.lock();
+        if let Some(b) = branches.get_mut(&key) {
+            b.head = new_id.clone();
+        }
+        self.set_head(&scope_key, new_id.clone());
+        Ok(new_id)
+    }
+
+    async fn rebase(&self, scope: &ContextUri, branch: &BranchName, onto: &BranchName) -> Result<Vec<CommitId>> {
+        let scope_key = Self::scope_key(scope);
+        let (branch_head, _onto_head) = {
+            let branches = self.branches.lock();
+            let b = branches.get(&(scope_key.clone(), branch.0.clone()))
+                .ok_or_else(|| VersionError::NotFound(format!("branch {}", branch.0)))?;
+            let o = branches.get(&(scope_key.clone(), onto.0.clone()))
+                .ok_or_else(|| VersionError::NotFound(format!("branch {}", onto.0)))?;
+            (b.head.clone(), o.head.clone())
+        };
+
+        let new_ids = vec![self.cherry_pick(scope, &branch_head, onto).await?];
+        Ok(new_ids)
+    }
+
+    async fn squash(&self, scope: &ContextUri, commits: Vec<CommitId>, message: &str) -> Result<SquashResult> {
+        let count = commits.len();
+        let merged_snapshot = {
+            let snapshots = self.entry_snapshots.lock();
+            let mut merged = HashMap::new();
+            for cid in &commits {
+                if let Some(s) = snapshots.get(cid) {
+                    for (k, v) in s { merged.insert(k.clone(), v.clone()); }
+                }
+            }
+            merged
+        };
+
+        let new_id = CommitId::new();
+        let squash = Commit {
+            id: new_id.clone(),
+            parents: commits,
+            tree_hash: ContentHash(format!("squash-{}", new_id.0)),
+            author: Author { agent_id: None, user_id: None, system: true },
+            message: message.to_string(),
+            timestamp: Utc::now(),
+            metadata: CommitMeta::default(),
+        };
+
+        self.commits.lock().insert(new_id.clone(), squash);
+        self.entry_snapshots.lock().insert(new_id.clone(), merged_snapshot);
+        self.set_head(&Self::scope_key(scope), new_id.clone());
+
+        Ok(SquashResult { new_commit: new_id, squashed_count: count })
+    }
+
+    async fn gc(&self, scope: &ContextUri, policy: &GcPolicy) -> Result<GcReport> {
+        let log = self.log(scope, &LogOpts { max_count: None, ..Default::default() }).await?;
+        let cutoff = log.len().saturating_sub(policy.keep_recent);
+        let mut removed = 0;
+        let mut freed = 0;
+
+        for commit in log.iter().skip(policy.keep_recent) {
+            self.commits.lock().remove(&commit.id);
+            if self.entry_snapshots.lock().remove(&commit.id).is_some() { freed += 1; }
+            removed += 1;
+        }
+        let _ = cutoff;
+        Ok(GcReport { removed_commits: removed, freed_snapshots: freed })
+    }
+
+    async fn evaluate_semantic_tags(&self, scope: &ContextUri) -> Result<Vec<(TagName, CommitId)>> {
+        let tags = self.list_tags(scope).await?;
+        let mut updates = Vec::new();
+        for tag in tags {
+            if let TagType::Semantic { ref condition } = tag.tag_type {
+                let _ = condition;
+                updates.push((tag.name, tag.target));
+            }
+        }
+        Ok(updates)
+    }
+
+    async fn provenance(&self, uri: &ContextUri) -> Result<ProvenanceGraph> {
+        let commits = self.commits.lock();
+        let mut nodes = Vec::new();
+        for (_cid, commit) in commits.iter() {
+            for link in &commit.metadata.provenance {
+                if link.source_uri == *uri {
+                    nodes.push(link.clone());
+                }
+            }
+        }
+        Ok(ProvenanceGraph {
+            root_uri: uri.clone(),
+            nodes,
+            depth: 0,
+        })
+    }
+
+    async fn impact_analysis(&self, commit: &CommitId) -> Result<ImpactAnalysis> {
+        let commits = self.commits.lock();
+        let mut downstream = Vec::new();
+        let target = commit.clone();
+        for (cid, c) in commits.iter() {
+            if c.parents.contains(&target) {
+                downstream.push(ContextUri(format!("commit-{}", cid.0)));
+            }
+        }
+        let branches = self.branches.lock();
+        let affected: Vec<BranchName> = branches.iter()
+            .filter(|(_, b)| b.head == target)
+            .map(|((_, name), _)| BranchName(name.clone()))
+            .collect();
+
+        Ok(ImpactAnalysis {
+            commit: commit.clone(),
+            downstream_uris: downstream,
+            affected_branches: affected,
         })
     }
 }

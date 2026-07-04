@@ -13,10 +13,14 @@
 //! - 仅依赖 core 的 **`FsOps` 窄端口**（只读寻址）和可选的 `VectorIndex`，不依赖具体后端。
 //! - 可用内存版 `FsOps` mock 单测，不启 PG（见 dev-tests）。
 
+pub mod innovation;
 pub mod intent;
+pub mod quality;
 pub mod retriever;
 
+pub use innovation::{IncrementalRetrievalLearner, PredictivePrefetcher, RelevanceFeedback};
 pub use intent::{LlmIntentAnalyzer, RuleBasedIntentAnalyzer};
+pub use quality::{CompressionAwareLoader, HallucinationDetector, PressureLevel, QualityReport};
 pub use retriever::HierarchicalRetrieverImpl;
 
 use agent_context_db_core::{

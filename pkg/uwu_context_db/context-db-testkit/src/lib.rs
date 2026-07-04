@@ -1,6 +1,6 @@
 //! # agent-context-db-testkit
 //!
-//! 存储端口内存参考实现，仅用于测试/开发：
+//! 存储端口内存实现，仅用于测试/开发：
 //! - [`MemoryContextStore`]：`FsOps` + `ContentRepo` + `VersionOps` + `TenantOps` 四端口
 //! - [`MemoryVersionStore`]：`VersionStore`（Commit/Branch/Tag DAG）
 //!

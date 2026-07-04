@@ -12,11 +12,22 @@
 //! - 真实五维类型（`AgentState` / `CalibrationRecord` 等）在对接时替换本模块占位类型。
 
 pub mod character_constraint;
+pub mod innovation;
 pub mod llm;
+pub mod mesh_bridge;
 pub mod metacog_bridge;
+pub mod sandbox;
 pub mod state_bridge;
+pub mod wasm;
 
 pub use character_constraint::{CharacterConstraint, ConstraintViolation, CoreValue};
+pub use innovation::{
+    AlignmentResult, FederatedEntry, FederatedView, FederationProtocol, FederationStatus,
+    Modality, MultimodalAligner, SharingPolicy,
+};
 pub use llm::{HttpLlmClient, MockLlmClient};
+pub use mesh_bridge::{ContextEvent, EventMeshBridge, MeshPublisher, NewRule, ReactionLearner};
 pub use metacog_bridge::{MetacogBridge, PredErrorSample, TimeWindow};
+pub use sandbox::{SafetyPolicy, SandboxVerdict, SemanticSandbox, WriteGate};
 pub use state_bridge::{ForkHandle, StateBridge, StateSnapshot};
+pub use wasm::{ComputeStats, WasmComputeInput, WasmComputeOutput, WasmDerivation, WasmSandbox};

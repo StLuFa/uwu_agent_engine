@@ -9,12 +9,24 @@
 //!   不反向依赖检索层或 uwu 扩展。
 //! - `VersionStore` 是端口（零实现）；线性快照 / DAG 后端由宿主注入。
 
+pub mod crdt_merge;
+pub mod innovation;
 pub mod model;
+pub mod reasoning;
 
 pub use model::{
     Author, Branch, BranchLifecycle, BranchName, BranchType, ChangeSet, Commit, CommitId,
     CommitMeta, CommitTrigger, ContentHash, ProvenanceLink, ProvenanceRelation, RenameOp,
     SemanticCondition, Tag, TagName, TagType, UriChange, VersionRef,
+};
+pub use crdt_merge::{CrdtMergeResult, CrdtMerger, CrdtStrategy};
+pub use innovation::{
+    CausalHypothesis, CausalInference, CrystalDistiller, DreamConsolidator,
+    KnowledgeCrystal, RepairAction, SelfHealer,
+};
+pub use reasoning::{
+    ChangeCategory, DiffChangeType, DiffImpact, DiffReasoner, SemanticChange, SemanticDiff,
+    TemporalPattern, TemporalReasoner, TimelineEvent,
 };
 
 use agent_context_db_core::{ContentLevel, ContentPayload, ContextUri};
@@ -74,6 +86,45 @@ pub struct MergeResult {
     pub conflicts: Vec<ContextUri>,
 }
 
+/// Squash 结果。
+#[derive(Debug, Clone)]
+pub struct SquashResult {
+    pub new_commit: CommitId,
+    pub squashed_count: usize,
+}
+
+/// GC 策略。
+#[derive(Debug, Clone)]
+pub struct GcPolicy {
+    /// 保留最近 N 个 commit
+    pub keep_recent: usize,
+    /// 超过此天数的清理
+    pub max_age_days: i64,
+}
+
+/// GC 报告。
+#[derive(Debug, Clone, Default)]
+pub struct GcReport {
+    pub removed_commits: usize,
+    pub freed_snapshots: usize,
+}
+
+/// 因果链图。
+#[derive(Debug, Clone)]
+pub struct ProvenanceGraph {
+    pub root_uri: ContextUri,
+    pub nodes: Vec<crate::model::ProvenanceLink>,
+    pub depth: usize,
+}
+
+/// 影响分析结果。
+#[derive(Debug, Clone)]
+pub struct ImpactAnalysis {
+    pub commit: CommitId,
+    pub downstream_uris: Vec<ContextUri>,
+    pub affected_branches: Vec<BranchName>,
+}
+
 /// 版本存储端口（M2）。见 ARCHITECTURE.md §1.6（此为骨架子集，聚焦交付验收面）。
 #[async_trait]
 pub trait VersionStore: Send + Sync {
@@ -117,18 +168,40 @@ pub trait VersionStore: Send + Sync {
 
     // === 合并 / Diff ===
     async fn merge(
-        &self,
-        scope: &ContextUri,
-        from: &BranchName,
-        into: &BranchName,
+        &self, scope: &ContextUri, from: &BranchName, into: &BranchName,
         strategy: MergeStrategy,
     ) -> Result<MergeResult>;
     async fn diff_commits(
-        &self,
-        scope: &ContextUri,
-        a: &CommitId,
-        b: &CommitId,
+        &self, scope: &ContextUri, a: &CommitId, b: &CommitId,
     ) -> Result<TreeDiff>;
+
+    // === 高级分支操作 ===
+    async fn switch_head(
+        &self, scope: &ContextUri, branch: &BranchName,
+    ) -> Result<()>;
+    async fn cherry_pick(
+        &self, scope: &ContextUri, commit: &CommitId, onto: &BranchName,
+    ) -> Result<CommitId>;
+
+    // === 历史改写 ===
+    async fn rebase(
+        &self, scope: &ContextUri, branch: &BranchName, onto: &BranchName,
+    ) -> Result<Vec<CommitId>>;
+    async fn squash(
+        &self, scope: &ContextUri, commits: Vec<CommitId>, message: &str,
+    ) -> Result<SquashResult>;
+
+    // === 生命周期 ===
+    async fn gc(&self, scope: &ContextUri, policy: &GcPolicy) -> Result<GcReport>;
+
+    // === 语义标签 ===
+    async fn evaluate_semantic_tags(
+        &self, scope: &ContextUri,
+    ) -> Result<Vec<(crate::model::TagName, CommitId)>>;
+
+    // === 因果分析 ===
+    async fn provenance(&self, uri: &ContextUri) -> Result<ProvenanceGraph>;
+    async fn impact_analysis(&self, commit: &CommitId) -> Result<ImpactAnalysis>;
 }
 
 #[cfg(test)]
