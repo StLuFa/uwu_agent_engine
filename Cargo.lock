@@ -92,6 +92,7 @@ dependencies = [
  "agent-context-db-core",
  "agent-context-db-testkit",
  "async-trait",
+ "chrono",
  "parking_lot",
  "serde",
  "serde_json",
@@ -119,7 +120,9 @@ version = "0.1.0"
 dependencies = [
  "agent-context-db-core",
  "async-trait",
+ "blake3",
  "chrono",
+ "parking_lot",
  "serde",
  "serde_json",
  "sqlx",
@@ -127,6 +130,7 @@ dependencies = [
  "tokio",
  "uuid",
  "uwu_database",
+ "zstd",
 ]
 
 [[package]]
