@@ -16,7 +16,7 @@
 pub mod intent;
 pub mod retriever;
 
-pub use intent::RuleBasedIntentAnalyzer;
+pub use intent::{LlmIntentAnalyzer, RuleBasedIntentAnalyzer};
 pub use retriever::HierarchicalRetrieverImpl;
 
 use agent_context_db_core::{
