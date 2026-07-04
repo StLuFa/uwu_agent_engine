@@ -11,7 +11,10 @@
 
 pub mod compressor;
 
-pub use compressor::{MemoryExtractorShim, SessionCompressorImpl};
+pub use compressor::{
+    MemoryExtractorShim, SemanticProcessorShim, SessionCompressorImpl,
+    ShimAction, ShimCandidateAction,
+};
 
 use agent_context_db_core::{ContextUri, MemoryClass, Result};
 use async_trait::async_trait;

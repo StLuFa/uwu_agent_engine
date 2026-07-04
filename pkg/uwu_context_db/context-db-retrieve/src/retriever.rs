@@ -102,14 +102,15 @@ impl HierarchicalRetriever for HierarchicalRetrieverImpl {
             // ── 阶段 3 + 4：目录内搜索 + 递归深入 ──
             for (dir, _score) in &top_dirs {
                 let candidates = self.intra_dir_search(dir, tq).await?;
+                let uris: Vec<ContextUri> = candidates.iter().map(|(u, _)| u.clone()).collect();
                 trace.steps.push(TraceStep::IntraDirSearch {
                     dir: dir.clone(),
-                    candidates: candidates.clone(),
+                    candidates: uris,
                 });
 
-                for cand in &candidates {
+                for (cand_uri, cand_mc) in &candidates {
                     let deeper = self
-                        .recursive_descent(cand, tq, ctx, &mut trace)
+                        .recursive_descent(cand_uri, *cand_mc, tq, ctx, &mut trace)
                         .await?;
                     all_hits.extend(deeper);
                 }
@@ -150,10 +151,19 @@ impl HierarchicalRetriever for HierarchicalRetrieverImpl {
         ctx: &RetrieveContext,
     ) -> Result<RetrievalResult> {
         // 调用通用 retrieve，然后按 class 过滤
-        // class-aware filtering: delegate to retrieve then post-filter by class.
-        // TODO: when RetrievalHit carries memory_class, filter result.hits here.
-        let _ = class;
-        self.retrieve(query, ctx).await
+        let mut result = self.retrieve(query, ctx).await?;
+
+        // Post-filter: 只保留匹配 class 或无 class 标注的 hits
+        result.hits.retain(|h| {
+            h.memory_class.map_or(true, |mc| mc == class)
+        });
+
+        // 如果过滤后为空，保留原始结果（宽松降级）
+        if result.hits.is_empty() {
+            return self.retrieve(query, ctx).await;
+        }
+
+        Ok(result)
     }
 }
 
@@ -203,16 +213,17 @@ impl HierarchicalRetrieverImpl {
     /// 阶段 3：目录内搜索。
     ///
     /// 对指定目录 ls，按 tq.kind 筛选候选。
+    /// 返回 (uri, memory_class) 对。
     async fn intra_dir_search(
         &self,
         dir: &ContextUri,
         tq: &TypedQuery,
-    ) -> Result<Vec<ContextUri>> {
+    ) -> Result<Vec<(ContextUri, Option<MemoryClass>)>> {
         let entries = self.fs.ls(dir).await?;
-        let candidates: Vec<ContextUri> = entries
+        let candidates: Vec<(ContextUri, Option<MemoryClass>)> = entries
             .into_iter()
             .filter(|e| !e.is_dir) // 只取文件
-            .map(|e| e.uri)
+            .map(|e| (e.uri, e.memory_class))
             .collect();
         let _ = tq;
         Ok(candidates)
@@ -224,6 +235,7 @@ impl HierarchicalRetrieverImpl {
     async fn recursive_descent(
         &self,
         uri: &ContextUri,
+        memory_class: Option<MemoryClass>,
         tq: &TypedQuery,
         ctx: &RetrieveContext,
         trace: &mut RetrievalTrace,
@@ -241,6 +253,7 @@ impl HierarchicalRetrieverImpl {
                     content,
                     relevance: initial_relevance(tq),
                     parent_chain: parent_chain.clone(),
+                    memory_class,
                 });
             }
             Err(_) => {
@@ -253,6 +266,7 @@ impl HierarchicalRetrieverImpl {
                             content: l0,
                             relevance: initial_relevance(tq) * 0.5,
                             parent_chain: parent_chain.clone(),
+                            memory_class,
                         });
                     }
                 }
@@ -274,7 +288,11 @@ impl HierarchicalRetrieverImpl {
                         parent_chain.push(uri.clone());
                         // 递归进去
                         let sub_hits = Box::pin(
-                            self.recursive_descent(&child.uri, tq, ctx, trace),
+                            self.recursive_descent(
+                                &child.uri,
+                                child.memory_class,
+                                tq, ctx, trace,
+                            ),
                         )
                         .await?;
                         hits.extend(sub_hits);
@@ -311,6 +329,7 @@ impl HierarchicalRetrieverImpl {
                                 content: l0,
                                 relevance: h.relevance,
                                 parent_chain: h.parent_chain,
+                                memory_class: h.memory_class,
                             });
                             used += l0_cost;
                         }

@@ -70,6 +70,8 @@ pub struct RetrievalHit {
     pub relevance: f32,
     /// 父目录链（递归深入路径）。
     pub parent_chain: Vec<ContextUri>,
+    /// 记忆分类（从条目元数据中获取，用于 class-aware 过滤）。
+    pub memory_class: Option<MemoryClass>,
 }
 
 // ===========================================================================
@@ -159,6 +161,7 @@ mod tests {
             content: ContentPayload::Abstract("x".into()),
             relevance: score,
             parent_chain: vec![],
+            memory_class: None,
         };
         let rr = ScoreReranker { keep: 2 };
         let out = rr

@@ -140,6 +140,8 @@ pub struct DirEntry {
     pub is_dir: bool,
     /// L0 摘要（目录/文件都有）。
     pub abstract_: String,
+    /// 记忆分类（从条目元数据中获取）。
+    pub memory_class: Option<MemoryClass>,
 }
 
 /// `find` 匹配模式。

@@ -208,9 +208,9 @@ impl FsOps for PgContextStore {
         let prefix = Self::dir_prefix(dir);
 
         // 获取所有以 dir/ 开头的条目
-        let rows = sqlx::query_as::<_, (String, String)>(
+        let rows = sqlx::query_as::<_, (String, String, Option<String>)>(
             r#"
-            SELECT uri, l0_abstract FROM context_entries
+            SELECT uri, l0_abstract, memory_class FROM context_entries
             WHERE uri LIKE $1
             ORDER BY uri
             "#,
@@ -221,8 +221,9 @@ impl FsOps for PgContextStore {
         .map_err(|e| ContextError::Storage(format!("ls failed: {e}")))?;
 
         let mut seen = std::collections::BTreeMap::new();
-        for (uri_str, abstract_) in rows {
+        for (uri_str, abstract_, memory_class_str) in rows {
             let rest = uri_str.strip_prefix(&prefix).unwrap_or(&uri_str);
+            let mc = memory_class_str.as_deref().and_then(|s| parse_memory_class(s));
             // 直接子项：rest 不含 '/'
             let slash_pos = rest.find('/');
             if let Some(pos) = slash_pos {
@@ -233,6 +234,7 @@ impl FsOps for PgContextStore {
                         uri: ContextUri(format!("{}{}", prefix, dir_name)),
                         is_dir: true,
                         abstract_: String::new(),
+                        memory_class: mc,
                     });
             } else {
                 // 这是一个文件
@@ -242,6 +244,7 @@ impl FsOps for PgContextStore {
                         uri: context_uri,
                         is_dir: false,
                         abstract_,
+                        memory_class: mc,
                     });
             }
         }
@@ -364,15 +367,27 @@ impl FsOps for PgContextStore {
                     l1.unwrap_or_default(),
                 )),
                 ContentLevel::L2 => {
-                    // L2: 返回完整条目 JSON（实际 blob 内容由 AGFS 存储，此处简化）
-                    let entry_row = sqlx::query_as::<_, (String,)>(
-                        "SELECT l0_abstract FROM context_entries WHERE uri = $1",
+                    // L2: 返回完整条目 JSON（包含所有元数据）
+                    // 实际 blob 内容由 AGFS 存储；此处返回 entry 的完整序列化，
+                    // 包含 l0_abstract + l1_overview + metadata，供上层重建完整 ContextEntry
+                    let entry_row = sqlx::query_as::<_, (serde_json::Value,)>(
+                        r#"
+                        SELECT row_to_json(t) FROM (
+                            SELECT uri, tenant_id, l0_abstract, l1_overview, l2_detail_ref,
+                                   content_type, memory_class, state_scope, tags, custom,
+                                   mvcc_version, created_at, updated_at
+                            FROM context_entries WHERE uri = $1
+                        ) t
+                        "#,
                     )
                     .bind(&uri_str)
                     .fetch_one(pg)
                     .await
                     .map_err(|e| ContextError::Storage(format!("read L2 failed: {e}")))?;
-                    Ok(ContentPayload::Detail(entry_row.0.into_bytes()))
+
+                    let bytes = serde_json::to_vec(&entry_row.0)
+                        .unwrap_or_else(|_| l0.into_bytes());
+                    Ok(ContentPayload::Detail(bytes))
                 }
             },
         }

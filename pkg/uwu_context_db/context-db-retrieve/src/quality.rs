@@ -288,6 +288,7 @@ mod tests {
                 content: ContentPayload::Abstract("a".into()),
                 relevance: 0.9,
                 parent_chain: vec![],
+                memory_class: None,
             },
         ];
 
