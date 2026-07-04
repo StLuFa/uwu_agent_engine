@@ -8770,7 +8770,10 @@ dependencies = [
  "async-trait",
  "serde",
  "serde_json",
+ "tokio",
+ "wiki-collab",
  "wiki-core",
+ "wiki-testkit",
 ]
 
 [[package]]
