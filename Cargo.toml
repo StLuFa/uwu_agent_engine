@@ -1,3 +1,9 @@
+[package]
+name = "uwu_agent_engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
 [workspace]
 members = [
     ".",
@@ -35,24 +41,27 @@ members = [
     # 知识库
     "crates/agent-wiki",
     # uwu_wiki 知识库子系统
-    "pkg/uwu_wiki/wiki-core",
-    "pkg/uwu_wiki/wiki-llm",
-    "pkg/uwu_wiki/wiki-collab",
-    "pkg/uwu_wiki/wiki-table",
-    "pkg/uwu_wiki/wiki-graph",
-    "pkg/uwu_wiki/wiki-workflow",
-    "pkg/uwu_wiki/wiki-testkit",
+    "pkg/uwu_wiki/crates/wiki-core",
+    "pkg/uwu_wiki/crates/wiki-llm",
+    "pkg/uwu_wiki/crates/wiki-collab",
+    "pkg/uwu_wiki/crates/wiki-table",
+    "pkg/uwu_wiki/crates/wiki-graph",
+    "pkg/uwu_wiki/crates/wiki-workflow",
+    "pkg/uwu_wiki/crates/wiki-testkit",
     # agent-context-db 上下文数据库（M0-M3 模块化解耦骨架）
-    "pkg/uwu_context_db/context-db-core",
-    "pkg/uwu_context_db/context-db-session",
-    "pkg/uwu_context_db/context-db-parse",
-    "pkg/uwu_context_db/context-db-compressor",
-    "pkg/uwu_context_db/context-db-storage",
-    "pkg/uwu_context_db/context-db-wiki",
-    "pkg/uwu_context_db/context-db-retrieve",
-    "pkg/uwu_context_db/context-db-version",
+    "pkg/uwu_context_db/crates/context-db-core",
+    "pkg/uwu_context_db/crates/context-db-session",
+    "pkg/uwu_context_db/crates/context-db-parse",
+    "pkg/uwu_context_db/crates/context-db-compressor",
+    "pkg/uwu_context_db/crates/context-db-storage",
+    "pkg/uwu_context_db/crates/context-db-wiki",
+    "pkg/uwu_context_db/crates/context-db-retrieve",
+    "pkg/uwu_context_db/crates/context-db-version",
     "crates/agent-context-db",
-    "pkg/uwu_context_db/context-db-testkit",
+    "pkg/uwu_context_db/crates/context-db-testkit",
+    # agent-context-db 高级模块（第10-11 crate）
+    "pkg/uwu_context_db/crates/context-db-consolidation",
+    "pkg/uwu_context_db/crates/context-db-cdt",
 ]
 resolver = "3"
 
@@ -60,3 +69,16 @@ resolver = "3"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4", "v7", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+async-trait = "0.1"
+thiserror = "1"
+parking_lot = "0.12"
+tokio = { version = "1", features = ["rt", "macros"] }
+lru = "0.12"
+rand = "0.8"
+metrics = "0.23"
